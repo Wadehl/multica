@@ -101,6 +101,9 @@ type PasswordSignupRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 	Email    string `json:"email"`
+	// Totp is the shared team 2FA code. Required only when
+	// MULTICA_SIGNUP_TOTP_SECRET is set; ignored when that gate is off.
+	Totp string `json:"totp,omitempty"`
 }
 
 func (h *Handler) PasswordLogin(w http.ResponseWriter, r *http.Request) {
@@ -174,6 +177,18 @@ func (h *Handler) PasswordSignup(w http.ResponseWriter, r *http.Request) {
 	if utf8.RuneCountInString(password) < minPasswordSignupPasswordLen || len(password) > maxPasswordLoginPasswordLen {
 		writeError(w, http.StatusBadRequest, "password must be at least 8 characters")
 		return
+	}
+
+	totpSecret, totpRequired := signupTOTPSecret()
+	if totpRequired {
+		if strings.TrimSpace(req.Totp) == "" {
+			writeError(w, http.StatusUnauthorized, "team 2FA code is required")
+			return
+		}
+		if _, ok := verifySignupTOTP(totpSecret, req.Totp, time.Now()); !ok {
+			writeError(w, http.StatusUnauthorized, "invalid or expired team 2FA code")
+			return
+		}
 	}
 
 	if creds, envOK := passwordAuthConfigured(); envOK && strings.EqualFold(username, creds.username) {
@@ -250,6 +265,17 @@ func (h *Handler) PasswordSignup(w http.ResponseWriter, r *http.Request) {
 		}
 		writeError(w, http.StatusInternalServerError, "failed to create user")
 		return
+	}
+
+	if totpRequired {
+		if err := consumeSignupTOTP(r.Context(), qtx, totpSecret, req.Totp, time.Now()); err != nil {
+			if errors.Is(err, errSignupTOTPRejected) {
+				writeError(w, http.StatusUnauthorized, "invalid or expired team 2FA code")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "failed to create user")
+			return
+		}
 	}
 
 	if err := tx.Commit(r.Context()); err != nil {
