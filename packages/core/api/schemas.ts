@@ -2136,8 +2136,9 @@ export const agentBuilderRuntimeSwitchFallback = (
 ): AgentBuilderRuntimeSwitch => ({ runtime_id: requestedRuntimeID });
 
 // Squad list responses carry lightweight membership previews used by hover
-// cards. The preview fields are additive API fields, so older backends default
-// cleanly to no preview instead of breaking newer frontends.
+// cards. member_count / member_preview are additive and default cleanly.
+// `members` must stay optional: official cloud omits it, and defaulting to []
+// would collapse "unknown roster" into "no members".
 const SquadMemberPreviewSchema = z.object({
   member_type: z.string(),
   member_id: z.string(),
@@ -2161,7 +2162,7 @@ export const SquadSchema = z.object({
   archived_by: z.string().nullable().optional().transform((v) => v ?? null),
   member_count: z.number().default(0),
   member_preview: z.array(SquadMemberPreviewSchema).default([]),
-  members: z.array(SquadMemberPreviewSchema).default([]),
+  members: z.array(SquadMemberPreviewSchema).optional(),
 }).loose();
 
 export const SquadListSchema = z.array(SquadSchema);
@@ -2181,8 +2182,18 @@ export const EMPTY_SQUAD: Squad = {
   archived_by: null,
   member_count: 0,
   member_preview: [],
-  members: [],
 };
+
+export const SquadMemberSchema = z.object({
+  id: z.string(),
+  squad_id: z.string(),
+  member_type: z.string(),
+  member_id: z.string(),
+  role: z.string().default(""),
+  created_at: z.string().default(""),
+}).loose();
+
+export const SquadMemberListSchema = z.array(SquadMemberSchema);
 
 // Squad member status — backs the Squad detail page's Members tab. status
 // is `string | null` (not the narrow `SquadMemberStatusValue` union) so a

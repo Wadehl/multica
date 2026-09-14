@@ -321,6 +321,7 @@ import {
   SearchProjectsResponseSchema,
   SquadSchema,
   SquadListSchema,
+  SquadMemberListSchema,
   SquadMemberStatusListResponseSchema,
   SubscribersListSchema,
   TaskMessageListSchema,
@@ -4119,7 +4120,20 @@ export class ApiClient {
   }
 
   async listSquadMembers(squadId: string): Promise<SquadMember[]> {
-    return this.fetch(`/api/squads/${squadId}/members`);
+    const raw = await this.fetch<unknown>(`/api/squads/${squadId}/members`);
+    // Do not fall back to []. A schema-invalid 2xx would then look like a
+    // known empty roster (count 0, members dumped into "no squad"). Genuine
+    // empty arrays still parse; drift must stay a query error.
+    const parsed = parseWithFallback<SquadMember[] | null>(
+      raw,
+      SquadMemberListSchema,
+      null,
+      { endpoint: "GET /api/squads/:id/members" },
+    );
+    if (parsed === null) {
+      throw new Error("GET /api/squads/:id/members failed schema validation");
+    }
+    return parsed;
   }
 
   async addSquadMember(squadId: string, data: { member_type: string; member_id: string; role?: string }): Promise<SquadMember> {
