@@ -1,6 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { electronAPI } from "@electron-toolkit/preload";
-import { homedir } from "node:os";
 import type { RuntimeConfigResult } from "../shared/runtime-config";
 import type { FreezeBreadcrumb } from "../shared/freeze-breadcrumb";
 import type {
@@ -37,7 +36,7 @@ import {
 // can pass it into CoreProvider during the initial render — the alternative
 // (async ipc.invoke) would race the ApiClient construction in initCore and
 // the first few HTTP requests would go out without X-Client-Version/OS.
-function fetchAppInfo(): { version: string; os: "macos" | "windows" | "linux" | "unknown" } {
+function fetchAppInfo(): { version: string; os: "macos" | "windows" | "linux" | "unknown"; homeDir?: string } {
   try {
     const info = ipcRenderer.sendSync("app:get-info") as
       | { version: string; os: "macos" | "windows" | "linux" | "unknown" }
@@ -69,7 +68,7 @@ function fetchRuntimeConfig(): RuntimeConfigResult {
 }
 
 const appInfo = fetchAppInfo();
-const homeDir = homedir();
+const homeDir = appInfo.homeDir ?? "";
 const runtimeConfig = fetchRuntimeConfig();
 const windowContext = readDesktopWindowContext(process.argv);
 

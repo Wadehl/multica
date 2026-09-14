@@ -692,7 +692,7 @@ if (!gotTheLock) {
     ipcMain.on("app:get-info", (event) => {
       const p = process.platform;
       const os = p === "darwin" ? "macos" : p === "win32" ? "windows" : p === "linux" ? "linux" : "unknown";
-      event.returnValue = { version: getAppVersion(), os };
+      event.returnValue = { version: getAppVersion(), os, homeDir: homedir() };
     });
 
     // Sync IPC: read + clear any freeze/crash breadcrumb left by a previous
