@@ -32,22 +32,35 @@ import {
   type TabSelectionShortcutKey,
 } from "../shared/main-renderer-messages";
 
+type DesktopAppInfo = {
+  version: string;
+  os: "macos" | "windows" | "linux" | "unknown";
+  homeDir?: string;
+};
+
 // Synchronously fetch app metadata from main at preload time so the renderer
 // can pass it into CoreProvider during the initial render — the alternative
 // (async ipc.invoke) would race the ApiClient construction in initCore and
 // the first few HTTP requests would go out without X-Client-Version/OS.
-function fetchAppInfo(): { version: string; os: "macos" | "windows" | "linux" | "unknown"; homeDir?: string } {
+// homeDir also comes from this IPC: sandboxed preload cannot `require("node:os")`.
+function fetchAppInfo(): DesktopAppInfo {
   try {
     const info = ipcRenderer.sendSync("app:get-info") as
-      | { version: string; os: "macos" | "windows" | "linux" | "unknown" }
+      | { version?: unknown; os?: unknown; homeDir?: unknown }
       | undefined;
-    if (info && typeof info.version === "string" && typeof info.os === "string") return info;
+    if (info && typeof info.version === "string" && typeof info.os === "string") {
+      return {
+        version: info.version,
+        os: info.os as DesktopAppInfo["os"],
+        homeDir: typeof info.homeDir === "string" ? info.homeDir : undefined,
+      };
+    }
   } catch {
     // fall through
   }
   // Fallback: derive OS from process.platform; version unknown.
   const p = process.platform;
-  const os: "macos" | "windows" | "linux" | "unknown" =
+  const os: DesktopAppInfo["os"] =
     p === "darwin" ? "macos" : p === "win32" ? "windows" : p === "linux" ? "linux" : "unknown";
   return { version: "unknown", os };
 }
