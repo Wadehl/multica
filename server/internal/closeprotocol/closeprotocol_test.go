@@ -2,6 +2,7 @@ package closeprotocol
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/multica-ai/multica/server/internal/issuestatus"
@@ -108,6 +109,8 @@ func TestValidate_FourClosingScenes(t *testing.T) {
 			KeyNextOwnerType: OwnerMember,
 			KeyNextOwnerID:   memberID,
 			KeyWakeAction:    WakeNone,
+			KeyBlockKind:     BlockDecision,
+			KeyBlockAction:   "provide the blocking decision",
 		})
 		if err := Validate(meta, issuestatus.Blocked, "need a product decision"); err != nil {
 			t.Fatalf("scene E: %v", err)
@@ -196,6 +199,8 @@ func TestValidate_Section61Rules(t *testing.T) {
 				KeyWakeAction:    WakeNone,
 				KeyNextOwnerType: OwnerMember,
 				KeyNextOwnerID:   memberID,
+				KeyBlockKind:     BlockDecision,
+				KeyBlockAction:   "provide the blocking decision",
 			}),
 			issueStatus: issuestatus.InReview,
 			wantRule:    "blocked",
@@ -307,6 +312,49 @@ func TestValidate_AtMustBeUTC(t *testing.T) {
 	} else if rule(err) != "at" {
 		t.Fatalf("rule = %q, want at", rule(err))
 	}
+}
+
+func TestValidate_BlockerFields(t *testing.T) {
+	t.Run("blocked record accepts each kind with an action", func(t *testing.T) {
+		for _, kind := range []string{BlockDecision, BlockPermission, BlockExternal, BlockCapacity} {
+			meta := base(map[string]string{
+				KeyConclusion:    ConclusionBlocked,
+				KeyStatus:        issuestatus.Blocked,
+				KeyNextOwnerType: OwnerMember,
+				KeyNextOwnerID:   memberID,
+				KeyWakeAction:    WakeNone,
+				KeyBlockKind:     kind,
+				KeyBlockAction:   "take the next unblock action",
+			})
+			if err := Validate(meta, issuestatus.Blocked, "blocked"); err != nil {
+				t.Fatalf("kind %s: %v", kind, err)
+			}
+		}
+	})
+	t.Run("dependency requires waiting_on", func(t *testing.T) {
+		meta := base(map[string]string{KeyConclusion: ConclusionBlocked, KeyStatus: issuestatus.Blocked, KeyNextOwnerType: OwnerAgent, KeyNextOwnerID: reviewerID, KeyWakeAction: WakeNone, KeyBlockKind: BlockDependency, KeyBlockAction: "wait for the other issue"})
+		if err := Validate(meta, issuestatus.Blocked, "blocked"); err == nil || rule(err) != "block_kind" {
+			t.Fatalf("expected dependency waiting_on error, got %v", err)
+		}
+	})
+	t.Run("legacy blocked record remains readable", func(t *testing.T) {
+		meta := base(map[string]string{KeyConclusion: ConclusionBlocked, KeyStatus: issuestatus.Blocked, KeyNextOwnerType: OwnerMember, KeyNextOwnerID: memberID, KeyWakeAction: WakeNone})
+		if err := ValidateLegacy(meta, issuestatus.Blocked, "legacy"); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("new blocked record requires both blocker fields", func(t *testing.T) {
+		meta := base(map[string]string{KeyConclusion: ConclusionBlocked, KeyStatus: issuestatus.Blocked, KeyNextOwnerType: OwnerMember, KeyNextOwnerID: memberID, KeyWakeAction: WakeNone})
+		if err := Validate(meta, issuestatus.Blocked, "new blocked"); err == nil || rule(err) != "blocker" {
+			t.Fatalf("expected missing blocker fields error, got %v", err)
+		}
+	})
+	t.Run("action is bounded", func(t *testing.T) {
+		meta := base(map[string]string{KeyConclusion: ConclusionBlocked, KeyStatus: issuestatus.Blocked, KeyNextOwnerType: OwnerMember, KeyNextOwnerID: memberID, KeyWakeAction: WakeNone, KeyBlockKind: BlockExternal, KeyBlockAction: strings.Repeat("x", 81)})
+		if err := Validate(meta, issuestatus.Blocked, "blocked"); err == nil || rule(err) != "block_action" {
+			t.Fatalf("expected action length error, got %v", err)
+		}
+	})
 }
 
 func TestValidate_MentionRequiresMarkdownMentionLink(t *testing.T) {
