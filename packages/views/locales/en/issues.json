@@ -1008,6 +1008,14 @@
     "drafts_banner": "You have {{count}} unfinished alignment(s)",
     "drafts_title": "Unfinished alignments",
     "drafts_hint": "Pick one to continue.",
-    "drafts_untitled": "Untitled alignment"
+    "drafts_untitled": "Untitled alignment",
+    "policy_label": "Alignment style",
+    "policy_guided": "Guided questions",
+    "policy_plain": "Plain conversation",
+    "policy_version": "Prompt {{version}}",
+    "policy_version_hint": "The prompt version this conversation is running. Recorded when the alignment started, so a finished draft stays auditable.",
+    "policy_failed": "Could not switch the alignment style.",
+    "question_recommended": "Recommended",
+    "question_custom_hint": "Or answer in your own words below."
   }
 }

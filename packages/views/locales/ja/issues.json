@@ -977,6 +977,14 @@
     "drafts_banner": "未完了のすり合わせが {{count}} 件あります",
     "drafts_title": "未完了のすり合わせ",
     "drafts_hint": "続きを選んでください。",
-    "drafts_untitled": "無題のすり合わせ"
+    "drafts_untitled": "無題のすり合わせ",
+    "policy_label": "すり合わせの方式",
+    "policy_guided": "質問で誘導",
+    "policy_plain": "通常の会話",
+    "policy_version": "プロンプト {{version}}",
+    "policy_version_hint": "この会話が使用しているプロンプトのバージョンです。開始時に記録されるため、完了したドラフトも追跡できます。",
+    "policy_failed": "すり合わせの方式を切り替えられませんでした。",
+    "question_recommended": "推奨",
+    "question_custom_hint": "下の入力欄に自分の言葉で答えてもかまいません。"
   }
 }
