@@ -223,7 +223,78 @@ func (h *Handler) issueParamsFromDraft(w http.ResponseWriter, r *http.Request, w
 	}, true
 }
 
-// issueGroupParamsFromDraft turns a ready draft into the whole set of create
+// issueDraftGroupState is what this alignment has already produced, read once
+// per confirm.
+//
+// A confirm needs two things from it at the same time: which payload nodes
+// already own an issue (a continuation round adds only the others) and what the
+// whole group looks like now (that is the answer every confirm returns), and
+// both come out of the same two reads. Reading them once is also what keeps
+// validation and the commit from disagreeing about which nodes exist: the
+// params pass skips exactly the nodes this state says are already issues.
+type issueDraftGroupState struct {
+	// HasRoot is false for an alignment that has never been confirmed, which is
+	// the ordinary first confirm.
+	HasRoot bool
+	Root    db.Issue
+	// Group is the whole committed group, root first. Only meaningful when
+	// HasRoot is true.
+	Group []db.Issue
+}
+
+// readIssueDraftGroupState reads the group this alignment already produced, if
+// any. The root is found by origin — the one id that is stable across rounds —
+// and the children by parent, which is exactly the read §3.4 of the design
+// prescribes for both the adopt and the answer path.
+func (h *Handler) readIssueDraftGroupState(w http.ResponseWriter, r *http.Request, session db.ChatSession) (issueDraftGroupState, bool) {
+	root, err := h.lookupIssueGroupRoot(r, session, issueDraftNodeID(session.ID, ""))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return issueDraftGroupState{}, true
+		}
+		writeError(w, http.StatusInternalServerError, "failed to look up issue for draft")
+		return issueDraftGroupState{}, false
+	}
+	group, ok := h.loadIssueGroup(w, r, root)
+	if !ok {
+		return issueDraftGroupState{}, false
+	}
+	return issueDraftGroupState{HasRoot: true, Root: root, Group: group}, true
+}
+
+// issueDraftOwnedNodes answers, for one payload's nodes, which of them already
+// own an issue.
+//
+// It asks by origin rather than by reading the group's children, and that
+// distinction is the whole point: origin_id is what migration 486's partial
+// unique index is on, so it is the only answer the next INSERT will agree with.
+// A read by parent disagrees the moment a node's issue leaves the group — moved
+// under a sibling, re-parented onto another epic, detached to the top level —
+// and a round that believed such a node was new would collide on its origin and
+// take every genuinely new node in the same transaction down with it.
+func (h *Handler) issueDraftOwnedNodes(w http.ResponseWriter, r *http.Request, session db.ChatSession, origins []pgtype.UUID) (map[string]struct{}, bool) {
+	owned := make(map[string]struct{}, len(origins))
+	if len(origins) == 0 {
+		return owned, true
+	}
+	issues, err := h.Queries.ListIssuesByOrigins(r.Context(), db.ListIssuesByOriginsParams{
+		WorkspaceID: session.WorkspaceID,
+		OriginType:  pgtype.Text{String: issueDraftOriginType, Valid: true},
+		OriginIds:   origins,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to look up issues for draft")
+		return nil, false
+	}
+	for _, issue := range issues {
+		if issue.OriginID.Valid {
+			owned[uuidToString(issue.OriginID)] = struct{}{}
+		}
+	}
+	return owned, true
+}
+
+// issueGroupParamsFromDraft turns a ready draft into the set of create
 // parameters the confirm will commit: the root first, then its children in
 // payload order.
 //
@@ -232,7 +303,16 @@ func (h *Handler) issueParamsFromDraft(w http.ResponseWriter, r *http.Request, w
 // squads), status resolution, and the parent lookup. The group transaction is
 // what a concurrent confirm blocks on, so it must contain nothing but inserts
 // and the row locks those inserts need (§4.3).
-func (h *Handler) issueGroupParamsFromDraft(w http.ResponseWriter, r *http.Request, workspaceID string, session db.ChatSession, draft db.IssueDraft) (service.IssueGroupParams, bool) {
+//
+// A continuation round — a draft that has been confirmed once already and
+// reopened (finalize_round > 0) on a group that exists — returns only the nodes
+// that own no issue yet, with group.RootIssueID naming the root it appends to.
+// Those nodes are also the only ones validated: an existing node's assignee may
+// have been archived since it was created, and a round that merely adds work
+// must not be refused over a node it is not touching. Its fields are never
+// rewritten either — the group is real work by then, edited by people and
+// agents, and a follow-up round is not grounds for overwriting that.
+func (h *Handler) issueGroupParamsFromDraft(w http.ResponseWriter, r *http.Request, workspaceID string, session db.ChatSession, draft db.IssueDraft, state issueDraftGroupState) (service.IssueGroupParams, bool) {
 	var payload issueDraftPayload
 	if err := json.Unmarshal(draft.Draft, &payload); err != nil {
 		writeError(w, http.StatusBadRequest, "draft is not a valid issue draft")
@@ -271,7 +351,40 @@ func (h *Handler) issueGroupParamsFromDraft(w http.ResponseWriter, r *http.Reque
 	}
 
 	group := service.IssueGroupParams{Nodes: make([]service.IssueGroupNode, 0, len(nodes))}
+	if !state.HasRoot || draft.FinalizeRound == 0 {
+		// Not a continuation round. Either nothing exists yet and the whole
+		// payload is built, or the group is already committed and the caller
+		// adopts it whole — a first confirm that finds the root there is a
+		// crash recovery or a re-keyed save racing it (§3.3 timelines B and C),
+		// and appending there would turn "confirm again" into "create those
+		// children too". Reopening is the only thing that makes new keys an
+		// increment, and the only thing that moves the round counter.
+		for _, node := range nodes {
+			params, ok := h.issueParamsFromDraft(w, r, workspaceID, session, node)
+			if !ok {
+				return service.IssueGroupParams{}, false
+			}
+			group.Nodes = append(group.Nodes, service.IssueGroupNode{Params: params})
+		}
+		return group, true
+	}
+
+	group.RootIssueID = state.Root.ID
+	origins := make([]pgtype.UUID, 0, len(nodes))
 	for _, node := range nodes {
+		origins = append(origins, issueDraftNodeID(session.ID, node.Key))
+	}
+	owned, ok := h.issueDraftOwnedNodes(w, r, session, origins)
+	if !ok {
+		return service.IssueGroupParams{}, false
+	}
+	for i, node := range nodes {
+		if _, exists := owned[uuidToString(origins[i])]; exists {
+			// Already an issue. Adopted, not rewritten: the group is real work
+			// by the time a round is added to it, edited by people and agents,
+			// and a follow-up round is not grounds for overwriting that.
+			continue
+		}
 		params, ok := h.issueParamsFromDraft(w, r, workspaceID, session, node)
 		if !ok {
 			return service.IssueGroupParams{}, false
@@ -314,33 +427,82 @@ func (h *Handler) loadIssueGroup(w http.ResponseWriter, r *http.Request, root db
 	return append(group, children...), true
 }
 
-// createIssueGroupForDraft commits the whole group, or adopts the one another
-// confirm already committed.
+// createIssueGroupForDraft commits the group this confirm is responsible for,
+// or adopts what is already committed.
 //
-// Two different mechanisms can hand back an existing group and both are needed:
+// Four mechanisms can hand back an existing group and all of them are needed:
 //
-//   - the origin lookup catches the ordinary retry — a double click, a lost
-//     response, a confirm whose process died after the commit but before the
-//     draft was pointed at the group;
+//   - a continuation round appends only the nodes that own no issue yet, so a
+//     round that adds one node writes one row and a round that adds nothing
+//     writes none (group.RootIssueID is set and Nodes holds inserts only);
+//   - the origin lookup in readIssueDraftGroupState catches the ordinary retry
+//     — a double click, a lost response, a confirm whose process died after the
+//     commit but before the draft was pointed at the group;
+//   - a first round that arrives with the group already committed adopts it
+//     whole, because only reopening makes a payload an increment;
 //   - the unique violation on the root insert catches the genuine race, where
 //     two confirms were both admitted before either created anything. The
 //     loser's children die with its root because the whole group shares one
 //     transaction, so a second group cannot exist.
 //
 // The partial unique index on issue (origin_id) WHERE origin_type =
-// 'issue_draft' is the authority for both. See §3.3 of the design.
-func (h *Handler) createIssueGroupForDraft(w http.ResponseWriter, r *http.Request, session db.ChatSession, group service.IssueGroupParams) ([]db.Issue, bool) {
+// 'issue_draft' is the authority for all of them. See §3.3 of the design.
+func (h *Handler) createIssueGroupForDraft(w http.ResponseWriter, r *http.Request, session db.ChatSession, state issueDraftGroupState, group service.IssueGroupParams) ([]db.Issue, bool) {
+	if group.RootIssueID.Valid {
+		if len(group.Nodes) == 0 {
+			// The whole payload already exists: the round adds nothing, and the
+			// group as it stands is also the answer a retry of this round gives.
+			return state.Group, true
+		}
+		h.prepareIssueGroupOpts(r, session, &group)
+		if _, err := h.IssueService.CreateGroup(r.Context(), group); err != nil {
+			// A unique violation here means a node this confirm read as new was
+			// committed by a concurrent confirm in between. The row exists,
+			// which is all this round wanted from it; the read-back below
+			// answers with the group as it stands. Anything else is a real
+			// failure and reports the way an ordinary create failure does.
+			var pgErr *pgconn.PgError
+			if !errors.As(err, &pgErr) || pgErr.Code != "23505" {
+				writeIssueDraftCreateError(w, r, err)
+				return nil, false
+			}
+		}
+		return h.loadIssueGroup(w, r, state.Root)
+	}
+
+	// Not a continuation round and the group is already committed. Adopting it
+	// whole is the whole point: a first confirm never appends to a group that
+	// exists (§3.3 timelines B and C).
+	if state.HasRoot {
+		return state.Group, true
+	}
+
 	rootOrigin := group.Nodes[0].Params.OriginID
+	h.prepareIssueGroupOpts(r, session, &group)
 
-	existing, err := h.lookupIssueGroupRoot(r, session, rootOrigin)
+	result, err := h.IssueService.CreateGroup(r.Context(), group)
 	if err == nil {
-		return h.loadIssueGroup(w, r, existing)
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, http.StatusInternalServerError, "failed to look up issue for draft")
-		return nil, false
+		return result.Issues, true
 	}
 
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		if won, lookupErr := h.lookupIssueGroupRoot(r, session, rootOrigin); lookupErr == nil {
+			return h.loadIssueGroup(w, r, won)
+		}
+	}
+	writeIssueDraftCreateError(w, r, err)
+	return nil, false
+}
+
+// prepareIssueGroupOpts fills in each node's post-commit options: who acted,
+// which agent the analytics event belongs to, the platform, and the
+// issue:created payload this transport broadcasts.
+//
+// Both commit paths go through it, because an appended node is created exactly
+// like a first-round one — a follow-up round that skipped this would create
+// real work that no board ever heard about.
+func (h *Handler) prepareIssueGroupOpts(r *http.Request, session db.ChatSession, group *service.IssueGroupParams) {
 	// One filler for the whole group: it shares a single status-catalog
 	// Resolver, so broadcasting N issues costs one catalog read rather than N.
 	prefix := h.getIssuePrefix(r.Context(), session.WorkspaceID)
@@ -366,20 +528,6 @@ func (h *Handler) createIssueGroupForDraft(w http.ResponseWriter, r *http.Reques
 			},
 		}
 	}
-
-	result, err := h.IssueService.CreateGroup(r.Context(), group)
-	if err == nil {
-		return result.Issues, true
-	}
-
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-		if won, lookupErr := h.lookupIssueGroupRoot(r, session, rootOrigin); lookupErr == nil {
-			return h.loadIssueGroup(w, r, won)
-		}
-	}
-	writeIssueDraftCreateError(w, r, err)
-	return nil, false
 }
 
 // IssueDraftCreatedIssue is one row of a confirmed group on the wire: enough
