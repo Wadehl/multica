@@ -39,6 +39,12 @@ type TransferCapabilities struct {
 	// means "unknown": an old instance that answers the field without a group
 	// list is still version-gated, so the version is the only signal there.
 	Groups []string `json:"groups"`
+	// AttachmentChunkMaxBytes is the largest slice this build accepts on
+	// `/transfer/attachments/chunk`. Zero — which is also what an absent field
+	// decodes to — means the target predates resumable attachment staging: the
+	// importer must fall back to one request per blob, and a blob too large for
+	// its uplink will die at the 100 s edge timeout.
+	AttachmentChunkMaxBytes int64 `json:"attachment_chunk_max_bytes,omitempty"`
 	// AcceptsGzip reports that the /transfer/* endpoints decode a
 	// `Content-Encoding: gzip` request body. It is absent on an instance that
 	// predates the field, and the sender then has to assume the instance would
@@ -73,10 +79,11 @@ func TransferServerMaxRequestBytes() int {
 // never claim a version the import kernel would refuse.
 func TransferCapabilitiesForCurrentBuild() TransferCapabilities {
 	return TransferCapabilities{
-		MaxSchemaVersion: TransferBundleSchemaVersion,
-		Groups:           append([]string(nil), TransferIncludeGroups...),
-		AcceptsGzip:      true,
-		MaxRequestBytes:  TransferServerMaxRequestBytes(),
+		MaxSchemaVersion:        TransferBundleSchemaVersion,
+		Groups:                  append([]string(nil), TransferIncludeGroups...),
+		AcceptsGzip:             true,
+		MaxRequestBytes:         TransferServerMaxRequestBytes(),
+		AttachmentChunkMaxBytes: TransferAttachmentChunkMaxBytes,
 	}
 }
 

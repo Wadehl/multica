@@ -272,6 +272,13 @@ type transferProgressEvent struct {
 	AttachmentsDownloaded int `json:"attachments_downloaded,omitempty"`
 	AttachmentsUploaded   int `json:"attachments_uploaded,omitempty"`
 	AttachmentsTotal      int `json:"attachments_total,omitempty"`
+	// Batch sizes differ by two orders of magnitude (a 20 KB thumbnail next to
+	// a 15 MB archive), so a count-based bar freezes on exactly the
+	// attachments that take longest. These carry the same progress in bytes; a
+	// client that has them prefers them, one that does not still has the
+	// counts (DENE-443).
+	AttachmentsBytesUploaded int64 `json:"attachments_bytes_uploaded,omitempty"`
+	AttachmentsBytesTotal    int64 `json:"attachments_bytes_total,omitempty"`
 	// RequestIndex / RequestsTotal / RequestBytes / UploadBytesPerSecond
 	// describe the upload direction one request at a time (DENE-442). The
 	// import used to be a handful of opaque multi-minute requests; now that it
@@ -311,6 +318,18 @@ func (r *transferProgressReporter) reportUploaded(uploaded, total int) {
 		Event:               "progress",
 		AttachmentsUploaded: uploaded,
 		AttachmentsTotal:    total,
+	})
+}
+
+// reportUploadBytes is the import progress signal: how many body bytes of the
+// attachments group are on the target, and how many there are in total.
+func (r *transferProgressReporter) reportUploadBytes(doneBytes, totalBytes int64, done, total int) {
+	r.write(transferProgressEvent{
+		Event:                    "progress",
+		AttachmentsUploaded:      done,
+		AttachmentsTotal:         total,
+		AttachmentsBytesUploaded: doneBytes,
+		AttachmentsBytesTotal:    totalBytes,
 	})
 }
 
@@ -635,6 +654,16 @@ func runTransferImport(cmd *cobra.Command, _ []string) error {
 		return cli.PrintJSON(cmd.OutOrStdout(), report)
 	}
 
+	// How attachments travel comes out of the same probe the wire sender
+	// already made: a build that advertises chunk staging gets resumable
+	// slices, anything else gets one request per blob and a readable refusal
+	// when a blob cannot make the edge timeout (DENE-443). An unprobed target
+	// reads as zero, which is the fallback path.
+	attachmentChunkMax := int64(0)
+	if target.caps != nil {
+		attachmentChunkMax = target.caps.AttachmentChunkMaxBytes
+	}
+
 	// --renumber rewrites the numbers BEFORE anything is written, and it asks
 	// for confirmation first: the offset silently invalidates every plain-text
 	// `<prefix>-xxx` reference in the imported bodies and comments (§2.3/§2.4).
@@ -705,25 +734,12 @@ func runTransferImport(cmd *cobra.Command, _ []string) error {
 	}
 	if !dry {
 		// Attachment uploads are the long silent stretch of an import (a real
-		// workspace carries minutes' worth of them), so report each one.
-		progress.reportUploaded(0, len(payload.Attachments))
+		// workspace carries an hour's worth of them), so every chunk reports
+		// its bytes as they land.
 		sender.beginStage("attachments", len(payload.Attachments))
-		for i, att := range payload.Attachments {
-			var blob []byte
-			if att.SHA256 != "" {
-				blob = payload.Blobs[att.SHA256]
-			}
-			chunk, err := transferAttachmentChunk(att, blob)
-			if err != nil {
-				return fmt.Errorf("upload attachment %s (%s): %w", att.Filename, att.SourceID, err)
-			}
-			if _, err := sender.post(ctx, base+"/transfer/attachments", chunk); err != nil {
-				// Name the attachment: the blob is the one thing on this path
-				// that cannot be halved, and "upload failed" alone leaves the
-				// user with a bundle they cannot fix (DENE-442).
-				return fmt.Errorf("upload attachment %s (%s): %w", att.Filename, att.SourceID, err)
-			}
-			progress.reportUploaded(i+1, len(payload.Attachments))
+		uploader := newTransferAttachmentUploader(client, sender, base, attachmentChunkMax, progress, payload.Attachments)
+		if err := uploader.run(ctx, payload); err != nil {
+			return err
 		}
 		if len(payload.SessionShards) > 0 {
 			fin := service.TransferConversationsRequest{DryRun: boolPtr(false), Finalize: true, Refs: payload.Manifest.Refs}
