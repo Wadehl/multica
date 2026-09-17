@@ -73,6 +73,7 @@ const (
 	// Two seconds deliberately keeps more than 130x headroom over the observed
 	// worst protocol completion for host load and cross-platform scheduling.
 	defaultCodexTurnInterruptTimeout = 2 * time.Second
+	defaultCodexTurnSteerTimeout     = 10 * time.Second
 	// thread/start and thread/resume may refresh the model catalog, initialize
 	// MCP integrations, and restore persisted history. Field evidence shows
 	// healthy calls crossing the 30s budget used for local initialize, so keep
@@ -920,7 +921,9 @@ func isCodexBareTomlKey(s string) bool {
 }
 
 func (b *codexBackend) Execute(ctx context.Context, prompt string, opts ExecOptions) (*Session, error) {
-	firstSession, err := b.executeOnce(ctx, prompt, opts, 1)
+	control := &codexSessionControl{}
+	controlCtx := context.WithValue(ctx, codexSessionControlContextKey{}, control)
+	firstSession, err := b.executeOnce(controlCtx, prompt, opts, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -935,7 +938,7 @@ func (b *codexBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 		for attempt := 1; attempt <= 2; attempt++ {
 			if attempt > 1 {
 				var err error
-				session, err = b.executeOnce(ctx, prompt, attemptOpts, attempt)
+				session, err = b.executeOnce(controlCtx, prompt, attemptOpts, attempt)
 				if err != nil {
 					resCh <- Result{Status: "failed", Error: err.Error()}
 					return
@@ -1017,7 +1020,46 @@ func (b *codexBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 		}
 	}()
 
-	return &Session{Messages: msgCh, Result: resCh}, nil
+	return &Session{Control: control, Messages: msgCh, Result: resCh}, nil
+}
+
+type codexSessionControlContextKey struct{}
+
+type codexSessionControl struct {
+	mu           sync.Mutex
+	current      *codexClient
+	capabilities SessionCapabilities
+}
+
+func (s *codexSessionControl) attach(client *codexClient) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.current = client
+	s.capabilities = client.Capabilities()
+}
+
+func (s *codexSessionControl) detach(client *codexClient) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.current == client {
+		s.current = nil
+	}
+}
+
+func (s *codexSessionControl) Capabilities() SessionCapabilities {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.capabilities
+}
+
+func (s *codexSessionControl) Steer(ctx context.Context, input, clientUserMessageID string) SteeringResult {
+	s.mu.Lock()
+	client := s.current
+	s.mu.Unlock()
+	if client == nil {
+		return SteeringResult{Status: SteeringSessionClosed, Error: "codex session is closed"}
+	}
+	return client.Steer(ctx, input, clientUserMessageID)
 }
 
 func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts ExecOptions, attempt int) (*Session, error) {
@@ -1205,6 +1247,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 		processDone:            make(chan struct{}),
 		handshakeTimeout:       handshakeTimeout,
 		threadHandshakeTimeout: threadHandshakeTimeout,
+		steerTimeout:           opts.TurnSteerTimeout,
 		pid:                    cmd.Process.Pid,
 		attempt:                attempt,
 		activeLaunches:         activeLaunches,
@@ -1250,6 +1293,11 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 			}
 		},
 	}
+	control, ok := ctx.Value(codexSessionControlContextKey{}).(*codexSessionControl)
+	if !ok {
+		control = &codexSessionControl{}
+	}
+	control.attach(c)
 
 	// Start reading stdout in background
 	readerDone := make(chan struct{})
@@ -1425,6 +1473,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 	// codex process exits → reader goroutine's scanner.Scan() returns false →
 	// readerDone closes → lifecycle goroutine collects final output and sends Result.
 	go func() {
+		defer control.detach(c)
 		defer activeCodexLaunches.Add(-1)
 		defer cancel()
 		defer stopProcess()
@@ -1541,7 +1590,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 			}
 			return
 		}
-		c.threadID = threadID
+		c.setThreadID(threadID)
 		if resumed {
 			b.cfg.Logger.Info("codex thread resumed", "thread_id", threadID)
 		} else {
@@ -1614,7 +1663,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 			}
 		}
 		turnNotificationGate.arm()
-		_, err = c.request(runCtx, "turn/start", turnParams)
+		turnStartResult, err := c.request(runCtx, "turn/start", turnParams)
 		if err != nil {
 			if runCtx.Err() != nil {
 				finishRunContextDone()
@@ -1633,6 +1682,8 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 					return
 				}
 			}
+		} else if turnID := extractNestedStringFromRaw(turnStartResult, "turn", "id"); turnID != "" {
+			c.setActiveTurnID(turnID)
 		}
 
 		lastSemanticActivity := time.Now()
@@ -1872,7 +1923,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 		}
 	}()
 
-	return &Session{Messages: msgCh, Result: resCh}, nil
+	return &Session{Control: control, Messages: msgCh, Result: resCh}, nil
 }
 
 func resolveCodexHandshakeTimeouts(opts ExecOptions) (time.Duration, time.Duration) {
@@ -2292,6 +2343,7 @@ type codexClient struct {
 	cfg                    Config
 	stdin                  interface{ Write([]byte) (int, error) }
 	mu                     sync.Mutex
+	writeMu                sync.Mutex
 	nextID                 int
 	pending                map[int]*pendingRPC
 	processDone            chan struct{}
@@ -2303,9 +2355,13 @@ type codexClient struct {
 	activeLaunches         int64
 	threadSetupMethod      string
 	threadSetupStarted     time.Time
+	threadIDMu             sync.RWMutex
 	threadID               string
 	turnIDMu               sync.RWMutex
 	turnID                 string
+	turnCompleted          bool
+	steerMu                sync.Mutex
+	steerTimeout           time.Duration
 	onMessage              func(Message)
 	onSemanticActivity     func(description string)
 	onTurnDone             func(aborted bool)
@@ -2325,7 +2381,6 @@ type codexClient struct {
 	onDiscardedNotification func(method string, params map[string]any)
 
 	notificationProtocol string // "unknown", "legacy", "raw"
-	turnCompleted        bool
 
 	usageMu sync.Mutex
 	usage   TokenUsage // accumulated from turn events
@@ -2435,6 +2490,130 @@ func (c *codexClient) activeTurnID() string {
 	c.turnIDMu.RLock()
 	defer c.turnIDMu.RUnlock()
 	return c.turnID
+}
+
+func (c *codexClient) setThreadID(threadID string) {
+	c.threadIDMu.Lock()
+	c.threadID = threadID
+	c.threadIDMu.Unlock()
+}
+
+func (c *codexClient) activeThreadID() string {
+	c.threadIDMu.RLock()
+	defer c.threadIDMu.RUnlock()
+	return c.threadID
+}
+
+func (c *codexClient) activeTurn() (string, string, bool) {
+	c.threadIDMu.RLock()
+	threadID := c.threadID
+	c.threadIDMu.RUnlock()
+	c.turnIDMu.RLock()
+	turnID, completed := c.turnID, c.turnCompleted
+	c.turnIDMu.RUnlock()
+	return threadID, turnID, completed
+}
+
+func (c *codexClient) markTurnCompleted() bool {
+	c.turnIDMu.Lock()
+	defer c.turnIDMu.Unlock()
+	if c.turnCompleted {
+		return false
+	}
+	c.turnCompleted = true
+	return true
+}
+
+func (c *codexClient) Capabilities() SessionCapabilities {
+	return SessionCapabilities{
+		Steering:  codexSteeringCapability(c.cfg.CodexVersion),
+		Interrupt: SessionCapabilitySupported,
+		FollowUp:  SessionCapabilityUnsupported,
+	}
+}
+
+func codexSteeringCapability(version string) SessionCapabilityStatus {
+	if strings.TrimSpace(version) == "" || strings.TrimSpace(version) == "unknown" {
+		return SessionCapabilityUnknown
+	}
+	if err := CheckMinVersion("codex", version); err != nil {
+		var belowMinimum *BelowMinimumError
+		if errors.As(err, &belowMinimum) {
+			return SessionCapabilityUnsupported
+		}
+		return SessionCapabilityUnknown
+	}
+	return SessionCapabilitySupported
+}
+
+func (c *codexClient) Steer(ctx context.Context, input, clientUserMessageID string) SteeringResult {
+	input = strings.TrimSpace(input)
+	clientUserMessageID = strings.TrimSpace(clientUserMessageID)
+	if input == "" {
+		return SteeringResult{Status: SteeringInvalid, Error: "codex Steering input is empty"}
+	}
+	if clientUserMessageID == "" {
+		return SteeringResult{Status: SteeringInvalid, Error: "codex Steering client user message ID is empty"}
+	}
+	if c.Capabilities().Steering == SessionCapabilityUnsupported {
+		return SteeringResult{Status: SteeringUnsupported, Error: fmt.Sprintf("codex CLI %q does not support turn/steer", c.cfg.CodexVersion)}
+	}
+
+	c.steerMu.Lock()
+	defer c.steerMu.Unlock()
+	if c.getProcessErr() != nil {
+		return SteeringResult{Status: SteeringSessionClosed, Error: "codex session is closed"}
+	}
+	threadID, turnID, completed := c.activeTurn()
+	if completed {
+		return SteeringResult{Status: SteeringTurnEnded, ThreadID: threadID, TurnID: turnID, Error: "codex turn has ended"}
+	}
+	if threadID == "" || turnID == "" {
+		return SteeringResult{Status: SteeringTurnEnded, ThreadID: threadID, TurnID: turnID, Error: "codex turn is not active"}
+	}
+
+	steerCtx := ctx
+	cancel := func() {}
+	if timeout := c.steerTimeout; timeout > 0 {
+		steerCtx, cancel = context.WithTimeout(ctx, timeout)
+	} else {
+		steerCtx, cancel = context.WithTimeout(ctx, defaultCodexTurnSteerTimeout)
+	}
+	defer cancel()
+	response, err := c.request(steerCtx, "turn/steer", map[string]any{
+		"threadId":            threadID,
+		"input":               []map[string]any{{"type": "text", "text": input}},
+		"expectedTurnId":      turnID,
+		"clientUserMessageId": clientUserMessageID,
+	})
+	if err != nil {
+		return codexSteeringErrorResult(err, threadID, turnID)
+	}
+
+	acceptedTurnID := extractNestedStringFromRaw(response, "turnId")
+	if acceptedTurnID == "" {
+		return SteeringResult{Status: SteeringFailed, ThreadID: threadID, TurnID: turnID, Error: "codex turn/steer returned no turn ID"}
+	}
+	if acceptedTurnID != turnID {
+		return SteeringResult{Status: SteeringFailed, ThreadID: threadID, TurnID: turnID, Error: fmt.Sprintf("codex turn/steer returned unexpected turn ID %q", acceptedTurnID)}
+	}
+	return SteeringResult{Status: SteeringAccepted, ThreadID: threadID, TurnID: acceptedTurnID}
+}
+
+func codexSteeringErrorResult(err error, threadID, turnID string) SteeringResult {
+	result := SteeringResult{Status: SteeringFailed, ThreadID: threadID, TurnID: turnID, Error: err.Error()}
+	message := strings.ToLower(err.Error())
+	switch {
+	case errors.Is(err, errCodexProcessExited), strings.Contains(message, "codex process exited"):
+		result.Status = SteeringSessionClosed
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		result.Status = SteeringFailed
+	case strings.Contains(message, "method not found"), strings.Contains(message, "unknown method"), strings.Contains(message, "unsupported"):
+		result.Status = SteeringUnsupported
+	case strings.Contains(message, "no active turn"), strings.Contains(message, "expected active turn"):
+		result.Status = SteeringTurnEnded
+	}
+	return result
 }
 
 type pendingRPC struct {
@@ -2584,7 +2763,7 @@ func (c *codexClient) request(ctx context.Context, method string, params any) (j
 		return nil, err
 	}
 	data = append(data, '\n')
-	if _, err := c.stdin.Write(data); err != nil {
+	if _, err := c.write(data); err != nil {
 		c.mu.Lock()
 		delete(c.pending, id)
 		c.mu.Unlock()
@@ -2633,7 +2812,7 @@ func (c *codexClient) notify(method string) {
 	}
 	data, _ := json.Marshal(msg)
 	data = append(data, '\n')
-	_, _ = c.stdin.Write(data)
+	_, _ = c.write(data)
 }
 
 func (c *codexClient) respond(id int, result any) {
@@ -2644,7 +2823,7 @@ func (c *codexClient) respond(id int, result any) {
 	}
 	data, _ := json.Marshal(msg)
 	data = append(data, '\n')
-	_, _ = c.stdin.Write(data)
+	_, _ = c.write(data)
 }
 
 func (c *codexClient) respondError(id int, code int, message string) {
@@ -2658,7 +2837,13 @@ func (c *codexClient) respondError(id int, code int, message string) {
 	}
 	data, _ := json.Marshal(msg)
 	data = append(data, '\n')
-	_, _ = c.stdin.Write(data)
+	_, _ = c.write(data)
+}
+
+func (c *codexClient) write(data []byte) (int, error) {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	return c.stdin.Write(data)
 }
 
 func (c *codexClient) closeAllPending(err error) {
@@ -3256,7 +3441,7 @@ func (c *codexClient) handleEvent(msg map[string]any) {
 	switch msgType {
 	case "task_started":
 		if c.onMessage != nil {
-			c.onMessage(Message{Type: MessageStatus, Status: "running", SessionID: c.threadID})
+			c.onMessage(Message{Type: MessageStatus, Status: "running", SessionID: c.activeThreadID()})
 		}
 	case "agent_message":
 		text, _ := msg["message"].(string)
@@ -3323,10 +3508,12 @@ func (c *codexClient) handleEvent(msg map[string]any) {
 	case "task_complete":
 		// Extract usage from legacy task_complete if present.
 		c.extractUsageFromMap(msg)
+		c.markTurnCompleted()
 		if c.onTurnDone != nil {
 			c.onTurnDone(false)
 		}
 	case "turn_aborted":
+		c.markTurnCompleted()
 		if c.onTurnDone != nil {
 			c.onTurnDone(true)
 		}
@@ -3356,7 +3543,7 @@ func (c *codexClient) handleRawNotification(method string, params map[string]any
 			c.setActiveTurnID(turnID)
 		}
 		if c.onMessage != nil {
-			c.onMessage(Message{Type: MessageStatus, Status: "running", SessionID: c.threadID})
+			c.onMessage(Message{Type: MessageStatus, Status: "running", SessionID: c.activeThreadID()})
 		}
 
 	case "turn/completed":
@@ -3364,10 +3551,9 @@ func (c *codexClient) handleRawNotification(method string, params map[string]any
 		status := extractNestedString(params, "turn", "status")
 		threadID, _ := params["threadId"].(string)
 		c.cfg.Logger.Info("codex turn/completed received", "thread_id", threadID, "turn_id", turnID, "status", status)
-		if c.turnCompleted {
+		if !c.markTurnCompleted() {
 			return
 		}
-		c.turnCompleted = true
 		aborted := status == "cancelled" || status == "canceled" ||
 			status == "aborted" || status == "interrupted"
 
@@ -3426,7 +3612,8 @@ func (c *codexClient) handleRawNotification(method string, params map[string]any
 
 func (c *codexClient) isNotificationFromOtherThread(params map[string]any) bool {
 	threadID, ok := params["threadId"].(string)
-	return ok && c.threadID != "" && threadID != c.threadID
+	activeThreadID := c.activeThreadID()
+	return ok && activeThreadID != "" && threadID != activeThreadID
 }
 
 func (c *codexClient) handleItemNotification(method string, params map[string]any) {
@@ -4008,6 +4195,14 @@ func extractThreadID(result json.RawMessage) string {
 		return ""
 	}
 	return r.Thread.ID
+}
+
+func extractNestedStringFromRaw(result json.RawMessage, keys ...string) string {
+	var value map[string]any
+	if err := json.Unmarshal(result, &value); err != nil {
+		return ""
+	}
+	return extractNestedString(value, keys...)
 }
 
 func extractNestedString(m map[string]any, keys ...string) string {

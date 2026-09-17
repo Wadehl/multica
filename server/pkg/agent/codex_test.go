@@ -141,6 +141,175 @@ func TestCodexHandleResponseError(t *testing.T) {
 	}
 }
 
+func TestCodexSteeringCapabilityFollowsCodexVersion(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		version string
+		want    SessionCapabilityStatus
+	}{
+		{version: "0.99.0", want: SessionCapabilityUnsupported},
+		{version: "0.100.0", want: SessionCapabilitySupported},
+		{version: "codex-cli 0.147.0", want: SessionCapabilitySupported},
+		{version: "", want: SessionCapabilityUnknown},
+		{version: "unknown", want: SessionCapabilityUnknown},
+		{version: "local-build", want: SessionCapabilityUnknown},
+	}
+	for _, tt := range tests {
+		t.Run(tt.version, func(t *testing.T) {
+			c, _, _ := newTestCodexClient(t)
+			c.cfg.CodexVersion = tt.version
+			if got := c.Capabilities().Steering; got != tt.want {
+				t.Fatalf("Steering capability = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCodexSteerSendsBoundedTurnInput(t *testing.T) {
+	t.Parallel()
+
+	c, fs, _ := newTestCodexClient(t)
+	c.setThreadID("thr-steer")
+	c.setActiveTurnID("turn-steer")
+	wait := drainRPCScript(t, c, fs, []rpcResponse{{
+		method: "turn/steer",
+		result: json.RawMessage(`{"turnId":"turn-steer"}`),
+		assertFn: func(t *testing.T, params map[string]any) {
+			if params["threadId"] != "thr-steer" || params["expectedTurnId"] != "turn-steer" || params["clientUserMessageId"] != "msg-1" {
+				t.Fatalf("unexpected turn/steer params: %+v", params)
+			}
+			input, ok := params["input"].([]any)
+			if !ok || len(input) != 1 {
+				t.Fatalf("input = %+v, want one text item", params["input"])
+			}
+			item, ok := input[0].(map[string]any)
+			if !ok || item["type"] != "text" || item["text"] != "focus on the failing test" {
+				t.Fatalf("input item = %+v", input[0])
+			}
+		},
+	}})
+	defer wait()
+
+	got := c.Steer(context.Background(), " focus on the failing test ", " msg-1 ")
+	if got.Status != SteeringAccepted || got.ThreadID != "thr-steer" || got.TurnID != "turn-steer" || got.Error != "" {
+		t.Fatalf("Steer result = %+v", got)
+	}
+}
+
+func TestCodexSteerSerializesConcurrentRequests(t *testing.T) {
+	t.Parallel()
+
+	c, fs, _ := newTestCodexClient(t)
+	c.setThreadID("thr-concurrent-steer")
+	c.setActiveTurnID("turn-concurrent-steer")
+	wait := drainRPCScript(t, c, fs, []rpcResponse{
+		{method: "turn/steer", result: json.RawMessage(`{"turnId":"turn-concurrent-steer"}`)},
+		{method: "turn/steer", result: json.RawMessage(`{"turnId":"turn-concurrent-steer"}`)},
+	})
+	defer wait()
+
+	results := make(chan SteeringResult, 2)
+	go func() { results <- c.Steer(context.Background(), "one", "msg-1") }()
+	go func() { results <- c.Steer(context.Background(), "two", "msg-2") }()
+	for range 2 {
+		result := <-results
+		if result.Status != SteeringAccepted {
+			t.Fatalf("concurrent Steer result = %+v", result)
+		}
+	}
+}
+
+func TestCodexSteerReportsTerminalStates(t *testing.T) {
+	t.Parallel()
+
+	t.Run("turn ended", func(t *testing.T) {
+		c, _, _ := newTestCodexClient(t)
+		c.setThreadID("thr-ended")
+		c.setActiveTurnID("turn-ended")
+		c.markTurnCompleted()
+		got := c.Steer(context.Background(), "input", "msg-ended")
+		if got.Status != SteeringTurnEnded {
+			t.Fatalf("Steer status = %q, want %q", got.Status, SteeringTurnEnded)
+		}
+	})
+
+	t.Run("session closed", func(t *testing.T) {
+		c, _, _ := newTestCodexClient(t)
+		c.markProcessExited(errCodexProcessExited)
+		got := c.Steer(context.Background(), "input", "msg-closed")
+		if got.Status != SteeringSessionClosed {
+			t.Fatalf("Steer status = %q, want %q", got.Status, SteeringSessionClosed)
+		}
+	})
+
+	t.Run("unsupported version", func(t *testing.T) {
+		c, fs, _ := newTestCodexClient(t)
+		c.cfg.CodexVersion = "0.99.0"
+		got := c.Steer(context.Background(), "input", "msg-unsupported")
+		if got.Status != SteeringUnsupported {
+			t.Fatalf("Steer status = %q, want %q", got.Status, SteeringUnsupported)
+		}
+		if len(fs.Lines()) != 0 {
+			t.Fatalf("unsupported Steering sent RPC: %v", fs.Lines())
+		}
+	})
+
+	t.Run("invalid input", func(t *testing.T) {
+		c, _, _ := newTestCodexClient(t)
+		got := c.Steer(context.Background(), " ", "msg-invalid")
+		if got.Status != SteeringInvalid {
+			t.Fatalf("Steer status = %q, want %q", got.Status, SteeringInvalid)
+		}
+	})
+}
+
+func TestCodexSteerValidatesResponseAndTimeout(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unexpected turn id", func(t *testing.T) {
+		c, fs, _ := newTestCodexClient(t)
+		c.setThreadID("thr-response")
+		c.setActiveTurnID("turn-response")
+		wait := drainRPCScript(t, c, fs, []rpcResponse{
+			{method: "turn/steer", result: json.RawMessage(`{"turnId":"turn-other"}`)},
+		})
+		defer wait()
+		got := c.Steer(context.Background(), "input", "msg-response")
+		if got.Status != SteeringFailed || !strings.Contains(got.Error, "unexpected turn ID") {
+			t.Fatalf("Steer result = %+v", got)
+		}
+	})
+
+	t.Run("timeout", func(t *testing.T) {
+		c, _, _ := newTestCodexClient(t)
+		c.setThreadID("thr-timeout")
+		c.setActiveTurnID("turn-timeout")
+		c.steerTimeout = 20 * time.Millisecond
+		got := c.Steer(context.Background(), "input", "msg-timeout")
+		if got.Status != SteeringFailed {
+			t.Fatalf("Steer result = %+v", got)
+		}
+		if !strings.Contains(got.Error, "deadline exceeded") {
+			t.Fatalf("timeout error = %q", got.Error)
+		}
+	})
+
+	t.Run("provider rejection", func(t *testing.T) {
+		c, fs, _ := newTestCodexClient(t)
+		c.setThreadID("thr-rejected")
+		c.setActiveTurnID("turn-rejected")
+		wait := drainRPCScript(t, c, fs, []rpcResponse{
+			{method: "turn/steer", errMsg: "no active turn to steer", errCode: -32602},
+		})
+		defer wait()
+		got := c.Steer(context.Background(), "input", "msg-rejected")
+		if got.Status != SteeringTurnEnded || !strings.Contains(got.Error, "no active turn") {
+			t.Fatalf("Steer result = %+v", got)
+		}
+	})
+}
+
 func TestCodexHandleServerRequestAutoApproves(t *testing.T) {
 	t.Parallel()
 
