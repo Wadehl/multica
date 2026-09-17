@@ -65,6 +65,10 @@ type ExecOptions struct {
 	// useful on slower hosts without coupling cancellation cleanup to the much
 	// longer execution or handshake budgets.
 	TurnInterruptTimeout time.Duration
+	// TurnSteerTimeout bounds how long the Codex backend waits for the
+	// app-server to accept an active-turn Steering request. Zero uses the
+	// provider default.
+	TurnSteerTimeout time.Duration
 	// ThreadHandshakeTimeout optionally gives Codex's heavier thread/start and
 	// thread/resume RPCs a wider budget than initialize and turn/start. Zero
 	// preserves the legacy behavior for callers that explicitly set
@@ -147,6 +151,9 @@ func runContext(ctx context.Context, timeout time.Duration) (context.Context, co
 
 // Session represents a running agent execution.
 type Session struct {
+	// Control exposes concurrency-safe controls for the active session. A
+	// backend that does not support live controls leaves this nil.
+	Control SessionControl
 	// ToolActivity optionally reports backend-owned tool accounting and its last
 	// transition time, independent of the best-effort transcript. Nil uses the
 	// daemon's message-based accounting. The timestamp gives completed tools a
@@ -180,6 +187,53 @@ type Session struct {
 	Messages <-chan Message
 	// Result receives exactly one value — the final outcome — then closes.
 	Result <-chan Result
+}
+
+// SessionCapabilityStatus describes whether a session control is available.
+type SessionCapabilityStatus string
+
+const (
+	SessionCapabilitySupported   SessionCapabilityStatus = "supported"
+	SessionCapabilityUnsupported SessionCapabilityStatus = "unsupported"
+	SessionCapabilityUnknown     SessionCapabilityStatus = "unknown"
+)
+
+// SessionCapabilities reports controls that can be used while a session is
+// running. Capability status may be unknown when the provider version was not
+// available at launch time.
+type SessionCapabilities struct {
+	Steering  SessionCapabilityStatus
+	Interrupt SessionCapabilityStatus
+	FollowUp  SessionCapabilityStatus
+}
+
+// SteeringStatus is the outcome of a live Steering request.
+type SteeringStatus string
+
+const (
+	SteeringAccepted      SteeringStatus = "accepted"
+	SteeringInvalid       SteeringStatus = "invalid"
+	SteeringUnsupported   SteeringStatus = "unsupported"
+	SteeringTurnEnded     SteeringStatus = "turn_ended"
+	SteeringSessionClosed SteeringStatus = "session_closed"
+	SteeringFailed        SteeringStatus = "failed"
+)
+
+// SteeringResult reports whether the provider accepted a live-turn Steering
+// request and identifies the thread and turn it was bound to.
+type SteeringResult struct {
+	Status   SteeringStatus
+	ThreadID string
+	TurnID   string
+	Error    string
+}
+
+// SessionControl is the small interface for controls tied to one running
+// session. The clientUserMessageID is required for retry correlation at the
+// provider protocol layer.
+type SessionControl interface {
+	Capabilities() SessionCapabilities
+	Steer(ctx context.Context, input, clientUserMessageID string) SteeringResult
 }
 
 // MessageType identifies the kind of Message.
