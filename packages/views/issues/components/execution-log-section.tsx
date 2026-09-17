@@ -2,12 +2,19 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, Loader2, RotateCcw, Square } from "lucide-react";
+import { ChevronRight, Loader2, MessageSquare, RotateCcw, Send, Square } from "lucide-react";
 import { toast } from "sonner";
 import { api, dispatchReasonCode } from "@multica/core/api";
 import { issueTasksOptions } from "@multica/core/issues/queries";
 import { useCustomPricingStore } from "@multica/core/runtimes/custom-pricing-store";
 import type { AgentTask } from "@multica/core/types";
+import { Button } from "@multica/ui/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@multica/ui/components/ui/popover";
+import { Textarea } from "@multica/ui/components/ui/textarea";
 import { useTimeAgo } from "../../i18n";
 import {
   Tooltip,
@@ -59,6 +66,8 @@ interface ExecutionLogSectionProps {
   issueId: string;
   /** Shown in the usage dialog's subtitle so the panel names what it totals. */
   identifier?: string;
+  /** Enables the web-only active-turn steering affordance. */
+  showSteering?: boolean;
 }
 
 // Past-runs sort priority: newest first by timestamp. When two runs
@@ -70,7 +79,7 @@ const PAST_STATUS_RANK: Record<string, number> = {
   completed: 2,
 };
 
-export function ExecutionLogSection({ issueId, identifier }: ExecutionLogSectionProps) {
+export function ExecutionLogSection({ issueId, identifier, showSteering = false }: ExecutionLogSectionProps) {
   const { t } = useT("issues");
   const [open, setOpen] = useState(true);
   const [showPast, setShowPast] = useState(false);
@@ -166,7 +175,7 @@ export function ExecutionLogSection({ issueId, identifier }: ExecutionLogSection
       {open && (
         <div className="space-y-0.5 pl-2">
           {activeTasks.map((task) => (
-            <ActiveTaskRow key={task.id} task={task} issueId={issueId} />
+            <ActiveTaskRow key={task.id} task={task} issueId={issueId} showSteering={showSteering} />
           ))}
 
           {pastTasks.length > 0 && (
@@ -304,10 +313,12 @@ export function ActiveTaskRow({
   task,
   issueId,
   onTranscriptOpenChange,
+  showSteering = false,
 }: {
   task: AgentTask;
   issueId: string;
   onTranscriptOpenChange?: (open: boolean, fromKeyboard?: boolean) => void;
+  showSteering?: boolean;
 }) {
   const { t } = useT("issues");
   const [cancelling, setCancelling] = useState(false);
@@ -384,6 +395,7 @@ export function ActiveTaskRow({
             onOpenChange={onTranscriptOpenChange}
           />
         )}
+        {showSteering && task.status === "running" && <SteerTaskPopover />}
         <Tooltip>
           <TooltipTrigger
             render={
@@ -416,6 +428,60 @@ export function ActiveTaskRow({
         }
       />
     </RowShell>
+  );
+}
+
+function SteerTaskPopover() {
+  const { t } = useT("issues");
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState("");
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        render={
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label={t(($) => $.execution_log.steer_aria)}
+            title={t(($) => $.execution_log.steer_aria)}
+          />
+        }
+      >
+        <MessageSquare aria-hidden="true" className="size-3.5" />
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        side="top"
+        sideOffset={8}
+        className="w-80 gap-3 p-3"
+      >
+        <div className="space-y-0.5">
+          <p className="text-label font-medium">{t(($) => $.execution_log.steer_title)}</p>
+          <p className="text-caption text-muted-foreground">
+            {t(($) => $.execution_log.steer_description)}
+          </p>
+        </div>
+        <Textarea
+          value={input}
+          onChange={(event) => setInput(event.target.value)}
+          placeholder={t(($) => $.execution_log.steer_placeholder)}
+          rows={3}
+          className="min-h-20 resize-none text-body"
+          disabled
+        />
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-caption text-muted-foreground">
+            {t(($) => $.execution_log.steer_unavailable)}
+          </span>
+          <Button type="button" size="sm" variant="brandSubtle" disabled={!input.trim()}>
+            <Send aria-hidden="true" />
+            {t(($) => $.execution_log.steer_send)}
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
