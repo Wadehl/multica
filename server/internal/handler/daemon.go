@@ -1020,8 +1020,9 @@ func (h *Handler) DaemonDeregister(w http.ResponseWriter, r *http.Request) {
 }
 
 type DaemonHeartbeatRequest struct {
-	RuntimeID           string `json:"runtime_id"`
-	SupportsBatchImport bool   `json:"supports_batch_import,omitempty"`
+	RuntimeID           string                       `json:"runtime_id"`
+	SupportsBatchImport bool                         `json:"supports_batch_import,omitempty"`
+	PlanLimits          *protocol.PlanLimitsSnapshot `json:"plan_limits,omitempty"`
 }
 
 // heartbeatHasPendingTimeout bounds the cheap HasPending probe on the
@@ -1154,6 +1155,13 @@ func (h *Handler) DaemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	authMs = time.Since(start).Milliseconds()
 
+	planLimitsJSON, validationErr := validatePlanLimitsSnapshot(req.PlanLimits, rt.Provider)
+	if validationErr != nil {
+		outcome = "invalid_plan_limits"
+		writeError(w, http.StatusBadRequest, "invalid plan_limits")
+		return
+	}
+
 	updateStart := time.Now()
 	if err := h.recordHeartbeat(r.Context(), rt); err != nil {
 		updateMs = time.Since(updateStart).Milliseconds()
@@ -1163,7 +1171,7 @@ func (h *Handler) DaemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	updateMs = time.Since(updateStart).Milliseconds()
 
-	ack, m, err := h.processHeartbeat(r.Context(), runtimeID, req.SupportsBatchImport)
+	ack, m, err := h.processHeartbeat(r.Context(), runtimeID, uuidToString(rt.WorkspaceID), req.SupportsBatchImport, planLimitsJSON)
 	probeModelMs = m.ProbeModelMs
 	popModelMs = m.PopModelMs
 	probeSkillsMs = m.ProbeSkillsMs
@@ -1207,7 +1215,7 @@ func (h *Handler) DaemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 // captured each runtime's liveness state in a connection lease, so the hot
 // path never reads agent_runtime. HTTP heartbeat remains the stateless lookup
 // fallback for a daemon that stops receiving WebSocket acknowledgements.
-func (h *Handler) HandleDaemonWSHeartbeat(ctx context.Context, identity daemonws.ClientIdentity, runtimeID string, supportsBatchImport bool) (*protocol.DaemonHeartbeatAckPayload, error) {
+func (h *Handler) HandleDaemonWSHeartbeat(ctx context.Context, identity daemonws.ClientIdentity, runtimeID string, supportsBatchImport bool, planLimits *protocol.PlanLimitsSnapshot) (*protocol.DaemonHeartbeatAckPayload, error) {
 	lease := identity.RuntimeLeases[runtimeID]
 	if lease == nil {
 		return nil, fmt.Errorf("runtime not in connection lease")
@@ -1227,7 +1235,12 @@ func (h *Handler) HandleDaemonWSHeartbeat(ctx context.Context, identity daemonws
 		}
 		return nil, err
 	}
-	ack, _, err := h.processHeartbeat(ctx, runtimeID, supportsBatchImport)
+	workspaceID := lease.Snapshot().WorkspaceID
+	planLimitsJSON, err := validatePlanLimitsSnapshot(planLimits, lease.Snapshot().Provider)
+	if err != nil {
+		return nil, fmt.Errorf("invalid plan_limits: %w", err)
+	}
+	ack, _, err := h.processHeartbeat(ctx, runtimeID, workspaceID, supportsBatchImport, planLimitsJSON)
 	return ack, err
 }
 
@@ -1367,8 +1380,27 @@ type heartbeatMetrics struct {
 // heartbeats using only the runtime ID. Each transport records liveness first:
 // HTTP uses its stateless runtime row, while WebSocket uses the connection
 // lease. Auth and request decoding also remain transport-specific.
-func (h *Handler) processHeartbeat(ctx context.Context, runtimeID string, supportsBatchImport bool) (*protocol.DaemonHeartbeatAckPayload, heartbeatMetrics, error) {
+func (h *Handler) processHeartbeat(ctx context.Context, runtimeID, workspaceID string, supportsBatchImport bool, planLimitsJSON []byte) (*protocol.DaemonHeartbeatAckPayload, heartbeatMetrics, error) {
 	var m heartbeatMetrics
+	if len(planLimitsJSON) > 0 {
+		runtimeUUID, err := util.ParseUUID(runtimeID)
+		if err != nil {
+			return nil, m, fmt.Errorf("invalid runtime_id: %w", err)
+		}
+		updated, err := h.Queries.UpdateAgentRuntimePlanLimits(ctx, db.UpdateAgentRuntimePlanLimitsParams{
+			ID:         runtimeUUID,
+			PlanLimits: planLimitsJSON,
+		})
+		if err != nil {
+			return nil, m, fmt.Errorf("update runtime plan limits: %w", err)
+		}
+		if updated > 0 {
+			h.publish(protocol.EventDaemonHeartbeat, workspaceID, "system", "", map[string]any{
+				"runtime_id":          runtimeID,
+				"plan_limits_updated": true,
+			})
+		}
+	}
 
 	slog.Debug("daemon heartbeat", "runtime_id", runtimeID)
 
