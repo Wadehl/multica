@@ -725,8 +725,9 @@ export interface RealtimeSyncStores {
  *
  * Per-issue events (comments, activity, reactions, subscribers) are handled
  * both here (invalidation fallback) and by per-page useWSEvent hooks (granular
- * updates). Daemon register events invalidate runtimes globally; heartbeats
- * are skipped to avoid excessive refetches.
+ * updates). Daemon register events invalidate runtimes globally, and the server
+ * sends daemon:heartbeat to a workspace only when a runtime's plan-limit
+ * snapshot changed, so it takes that same path.
  *
  * @param ws - WebSocket client instance (null when not yet connected)
  * @param stores - Platform-created Zustand store instances for auth and workspace
