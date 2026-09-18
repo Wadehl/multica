@@ -6,7 +6,7 @@ import type {
   PlanLimitWindow,
   PlanLimitsSnapshot,
 } from "@multica/core/types";
-import { useT, useTimeAgo, useTimeUntil } from "../../i18n";
+import { useT, useTimeAgo, useTimeUntil, useDateTime } from "../../i18n";
 
 const SNAPSHOT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
@@ -47,15 +47,30 @@ export function planLimitWindowShortLabel(window: PlanLimitWindow): string {
   return window.name;
 }
 
-export function percentageTone(value: number): string {
-  if (value >= 100) return "text-destructive";
-  if (value >= 80) return "text-warning";
+/**
+ * Quota left in a window. Providers report what a window consumed, and the
+ * reader asks how much is left; the remainder is the mirror of the reported
+ * percentage. A window at or past its limit has nothing left rather than a
+ * negative remainder.
+ */
+export function remainingPercent(window: PlanLimitWindow): number | null {
+  if (window.used_percent == null) return null;
+  return Math.max(0, 100 - window.used_percent);
+}
+
+/**
+ * Low quota is the alarming end of the scale, so these thresholds run opposite
+ * to the consumed percentages the providers report.
+ */
+export function remainingTone(percent: number): string {
+  if (percent <= 0) return "text-destructive";
+  if (percent <= 20) return "text-warning";
   return "text-foreground";
 }
 
-export function percentageBarTone(value: number): string {
-  if (value >= 100) return "bg-destructive";
-  if (value >= 80) return "bg-warning";
+export function remainingBarTone(percent: number): string {
+  if (percent <= 0) return "bg-destructive";
+  if (percent <= 20) return "bg-warning";
   return "bg-primary";
 }
 
@@ -114,14 +129,19 @@ export function providerPlanLimits(
   return entries.filter((entry) => entry.runtimeCount > 0);
 }
 
+export interface RemainingWindow {
+  window: PlanLimitWindow;
+  percent: number;
+}
+
 /** Windows carrying a usable percentage, the only ones worth drawing. */
-export function percentageWindows(
+export function remainingWindows(
   windows: readonly PlanLimitWindow[],
-): (PlanLimitWindow & { used_percent: number })[] {
-  return windows.filter(
-    (window): window is PlanLimitWindow & { used_percent: number } =>
-      window.used_percent != null,
-  );
+): RemainingWindow[] {
+  return windows.flatMap((window) => {
+    const percent = remainingPercent(window);
+    return percent == null ? [] : [{ window, percent }];
+  });
 }
 
 export function PlanLimitsCell({
@@ -137,8 +157,8 @@ export function PlanLimitsCell({
     return <span className="text-caption text-faint-foreground">—</span>;
   }
 
-  const percentages = percentageWindows(display.windows);
-  if (percentages.length === 0) {
+  const remaining = remainingWindows(display.windows);
+  if (remaining.length === 0) {
     return (
       <span className="truncate text-caption font-medium text-destructive">
         {t(($) => $.plan_limits.limit_reached)}
@@ -151,15 +171,15 @@ export function PlanLimitsCell({
       className="flex min-w-0 flex-col leading-tight"
       aria-label={t(($) => $.plan_limits.title)}
     >
-      {percentages.slice(0, 2).map((window) => (
+      {remaining.slice(0, 2).map(({ window, percent }) => (
         <span
           key={window.name}
-          className={`truncate text-caption tabular-nums ${percentageTone(window.used_percent)}`}
+          className={`truncate text-caption tabular-nums ${remainingTone(percent)}`}
         >
           <span className="text-muted-foreground">
             {planLimitWindowShortLabel(window)}
           </span>{" "}
-          {Math.round(window.used_percent)}%
+          {t(($) => $.plan_limits.remaining, { percent: Math.round(percent) })}
         </span>
       ))}
     </div>
@@ -188,13 +208,14 @@ export function planLimitWindowLabel(
   return window.name;
 }
 
-/** One quota window: label, percentage, bar, and the reset it counts down to. */
+/** One quota window: label, quota left, bar, and the reset it counts down to. */
 export function PlanLimitWindowRow({ window }: { window: PlanLimitWindow }) {
   const { t } = useT("runtimes");
   const timeUntil = useTimeUntil();
-  const used = window.used_percent;
-  const reset = window.resets_at
-    ? timeUntil(new Date(window.resets_at * 1000).toISOString())
+  const dateTime = useDateTime();
+  const percent = remainingPercent(window);
+  const resetsAt = window.resets_at
+    ? new Date(window.resets_at * 1000).toISOString()
     : null;
 
   return (
@@ -203,11 +224,11 @@ export function PlanLimitWindowRow({ window }: { window: PlanLimitWindow }) {
         <span className="text-caption font-medium">
           {planLimitWindowLabel(window, t)}
         </span>
-        {used != null ? (
+        {percent != null ? (
           <span
-            className={`text-caption font-semibold tabular-nums ${percentageTone(used)}`}
+            className={`text-caption font-semibold tabular-nums ${remainingTone(percent)}`}
           >
-            {t(($) => $.plan_limits.used, { percent: Math.round(used) })}
+            {t(($) => $.plan_limits.remaining, { percent: Math.round(percent) })}
           </span>
         ) : (
           <span className="text-caption font-medium text-destructive">
@@ -215,17 +236,19 @@ export function PlanLimitWindowRow({ window }: { window: PlanLimitWindow }) {
           </span>
         )}
       </div>
-      {used != null && (
+      {percent != null && (
         <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
           <div
-            className={`h-full rounded-full ${percentageBarTone(used)}`}
-            style={{ width: `${Math.min(100, used)}%` }}
+            className={`h-full rounded-full ${remainingBarTone(percent)}`}
+            style={{ width: `${percent}%` }}
           />
         </div>
       )}
-      {reset && (
+      {resetsAt && (
         <p className="mt-1.5 text-caption text-muted-foreground">
-          {t(($) => $.plan_limits.resets, { when: reset })}
+          {t(($) => $.plan_limits.resets_at, { when: dateTime(resetsAt) })}
+          {" · "}
+          {timeUntil(resetsAt)}
         </p>
       )}
     </div>

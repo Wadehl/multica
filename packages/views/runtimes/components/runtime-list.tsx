@@ -94,7 +94,9 @@ const COLUMN_WIDTHS = {
   owner: 96,
   agents: 92,
   cost: 96,
-  limits: 96,
+  // Wide enough for the longest window line ("5h 100% left") in every
+  // translated bundle; the cell stacks up to two of them.
+  limits: 112,
   cli: 112,
 } as const;
 

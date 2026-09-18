@@ -9,6 +9,7 @@ import { ProviderPlanLimitsCard } from "./provider-plan-limits-card";
 // The card reads the wall clock, so the fixtures are anchored to it: a
 // snapshot older than a day is treated as stale and drops out.
 const NOW = Math.floor(Date.now() / 1000);
+const RESET_AT = NOW + 2 * 24 * 60 * 60;
 
 const GROK_SNAPSHOT: PlanLimitsSnapshot = {
   provider: "grok",
@@ -19,7 +20,7 @@ const GROK_SNAPSHOT: PlanLimitsSnapshot = {
       name: "weekly",
       used_percent: 61,
       window_minutes: 10_080,
-      resets_at: NOW + 2 * 24 * 60 * 60,
+      resets_at: RESET_AT,
     },
   ],
 };
@@ -63,7 +64,7 @@ describe("ProviderPlanLimitsCard", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("renders one block per provider with its window usage", () => {
+  it("renders one block per provider with the quota it has left", () => {
     runtimeFixtures.runtimes = [
       { id: "rt-1", provider: "grok", plan_limits: GROK_SNAPSHOT } as AgentRuntime,
     ];
@@ -73,7 +74,11 @@ describe("ProviderPlanLimitsCard", () => {
     expect(screen.getByText("Plan limits")).toBeInTheDocument();
     expect(screen.getByText("Grok")).toBeInTheDocument();
     expect(screen.getByText("7-day window")).toBeInTheDocument();
-    expect(screen.getByText("61% used")).toBeInTheDocument();
+    expect(screen.getByText("39% left")).toBeInTheDocument();
+    // The reset boundary carries both the wall-clock moment and how long is
+    // left of it; the count is matched loosely because the render lands a
+    // moment after the fixture is anchored.
+    expect(screen.getByText(/^Resets .+ · in \d+d$/)).toBeInTheDocument();
   });
 
   it("reports a supported provider that has reported no snapshot", () => {
