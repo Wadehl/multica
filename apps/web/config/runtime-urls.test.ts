@@ -103,6 +103,25 @@ describe("resolveDocsUrl", () => {
 });
 
 describe("browser runtime URLs", () => {
+  it("keeps browser API requests same-origin when a remote proxy is configured", () => {
+    expect(
+      resolveBrowserApiBaseUrl({
+        REMOTE_API_URL: "https://api.multica.ai",
+        NEXT_PUBLIC_API_URL: "http://localhost:18086",
+      }),
+    ).toBeUndefined();
+  });
+
+  it("keeps browser WebSocket requests same-origin when a remote proxy is configured", () => {
+    expect(
+      resolveBrowserWsUrl({
+        REMOTE_API_URL: "https://api.multica.ai",
+        NEXT_PUBLIC_API_URL: "http://localhost:18086",
+        NEXT_PUBLIC_WS_URL: "ws://localhost:18086/ws",
+      }),
+    ).toBeUndefined();
+  });
+
   it("exposes NEXT_PUBLIC_API_URL at server render time", () => {
     expect(
       resolveBrowserApiBaseUrl({
