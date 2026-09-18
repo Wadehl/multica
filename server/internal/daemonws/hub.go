@@ -63,14 +63,10 @@ type RuntimeLeaseState struct {
 	LastSeenAtValid bool
 }
 
-func NewRuntimeLease(workspaceID, status string, lastSeenAt time.Time, lastSeenAtValid bool, provider ...string) *RuntimeLease {
-	providerName := ""
-	if len(provider) > 0 {
-		providerName = provider[0]
-	}
+func NewRuntimeLease(workspaceID, provider, status string, lastSeenAt time.Time, lastSeenAtValid bool) *RuntimeLease {
 	return &RuntimeLease{
 		workspaceID:     workspaceID,
-		provider:        providerName,
+		provider:        provider,
 		status:          status,
 		lastSeenAt:      lastSeenAt,
 		lastSeenAtValid: lastSeenAtValid,

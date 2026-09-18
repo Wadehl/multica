@@ -86,10 +86,10 @@ func (h *Handler) buildDaemonWebSocketIdentity(w http.ResponseWriter, r *http.Re
 		}
 		identity.RuntimeLeases[runtimeID] = daemonws.NewRuntimeLease(
 			workspaceID,
+			rt.Provider,
 			rt.Status,
 			rt.LastSeenAt.Time,
 			rt.LastSeenAt.Valid,
-			rt.Provider,
 		)
 	}
 
