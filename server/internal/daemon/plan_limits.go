@@ -1,6 +1,42 @@
 package daemon
 
-import "github.com/multica-ai/multica/server/pkg/protocol"
+import (
+	"context"
+	"time"
+
+	"github.com/multica-ai/multica/server/pkg/agent"
+	"github.com/multica-ai/multica/server/pkg/protocol"
+)
+
+const planLimitsRefreshInterval = time.Minute
+
+func (d *Daemon) refreshPlanLimits(ctx context.Context, runtimeID string) {
+	d.mu.Lock()
+	runtime, ok := d.runtimeIndex[runtimeID]
+	d.mu.Unlock()
+	if !ok || runtime.Provider != "grok" {
+		return
+	}
+
+	now := time.Now()
+	d.planLimitsMu.Lock()
+	if d.planLimitsFetchedAt == nil {
+		d.planLimitsFetchedAt = make(map[string]time.Time)
+	}
+	if fetchedAt, exists := d.planLimitsFetchedAt[runtimeID]; exists && now.Sub(fetchedAt) < planLimitsRefreshInterval {
+		d.planLimitsMu.Unlock()
+		return
+	}
+	d.planLimitsFetchedAt[runtimeID] = now
+	d.planLimitsMu.Unlock()
+
+	snapshot, err := agent.FetchGrokPlanLimits(ctx, nil)
+	if err != nil {
+		d.logger.Debug("grok plan limits unavailable", "runtime_id", runtimeID, "error", err)
+		return
+	}
+	d.recordPlanLimits(runtimeID, snapshot)
+}
 
 // recordPlanLimits keeps the newest provider snapshot in daemon memory until a
 // heartbeat delivers it. Built-in runtimes for the same provider share one CLI
