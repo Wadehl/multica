@@ -35,7 +35,7 @@ WHERE id = ANY(@ids::uuid[]);
 -- WebSocket authenticates its whole runtime set in one round trip and then
 -- keeps these immutable ownership fields plus liveness state in its connection
 -- lease, avoiding a GetAgentRuntime call on every heartbeat.
-SELECT id, workspace_id, daemon_id, status, last_seen_at
+SELECT id, workspace_id, daemon_id, provider, status, last_seen_at
 FROM agent_runtime
 WHERE id = ANY(@ids::uuid[]);
 
@@ -191,6 +191,14 @@ WHERE workspace_id = @workspace_id
 UPDATE agent_runtime
 SET last_seen_at = now()
 WHERE id = $1 AND status = 'online';
+
+-- name: UpdateAgentRuntimePlanLimits :execrows
+-- Stores only the validated, credential-free provider snapshot. Avoid rewriting
+-- the runtime row when consecutive heartbeats carry the same value.
+UPDATE agent_runtime
+SET plan_limits = @plan_limits
+WHERE id = @id
+  AND plan_limits IS DISTINCT FROM @plan_limits;
 
 -- name: TouchAgentRuntimesLastSeenBatch :many
 -- Bulk variant of TouchAgentRuntimeLastSeen used by the BatchedHeartbeatScheduler:

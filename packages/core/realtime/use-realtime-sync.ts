@@ -725,8 +725,9 @@ export interface RealtimeSyncStores {
  *
  * Per-issue events (comments, activity, reactions, subscribers) are handled
  * both here (invalidation fallback) and by per-page useWSEvent hooks (granular
- * updates). Daemon register events invalidate runtimes globally; heartbeats
- * are skipped to avoid excessive refetches.
+ * updates). Daemon register events invalidate runtimes globally, and the server
+ * sends daemon:heartbeat to a workspace only when a runtime's plan-limit
+ * snapshot changed, so it takes that same path.
  *
  * @param ws - WebSocket client instance (null when not yet connected)
  * @param stores - Platform-created Zustand store instances for auth and workspace
@@ -979,7 +980,6 @@ export function useRealtimeSync(
       "reaction:added", "reaction:removed",
       "issue_reaction:added", "issue_reaction:removed",
       "subscriber:added", "subscriber:removed",
-      "daemon:heartbeat",
       // Chat events are handled explicitly below; do not double-invalidate.
       "chat:message", "chat:done", "chat:quick_actions", "chat:cancel_finalized", "chat:session_read",
       "chat:session_created", "chat:session_deleted", "chat:session_updated",

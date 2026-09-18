@@ -17,6 +17,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/multica-ai/multica/server/pkg/protocol"
 	"github.com/multica-ai/multica/server/pkg/redact"
 )
 
@@ -1092,6 +1093,50 @@ func TestParseCodexSessionFileSubtractsCachedInput(t *testing.T) {
 	}
 	if got.usage.OutputTokens != 40 {
 		t.Fatalf("output tokens = %d, want 40 (including reasoning)", got.usage.OutputTokens)
+	}
+}
+
+func TestParseCodexSessionFileCapturesCredentialFreePlanLimits(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "session.jsonl")
+	content := `{"timestamp":"2026-08-21T12:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"model":"gpt-5.6"},"rate_limits":{"limit_id":"codex","plan_type":"pro","primary":{"used_percent":17.0,"window_minutes":300,"resets_at":1782403604},"secondary":{"used_percent":24.0,"window_minutes":10080,"resets_at":1782958880},"credits":{"balance":"private"}}}}` + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	got := parseCodexSessionFile(path)
+	if got == nil || got.planLimits == nil {
+		t.Fatal("expected plan limits without token usage")
+	}
+	if got.planLimits.Provider != "codex" || got.planLimits.Status != protocol.PlanLimitsStatusAvailable {
+		t.Fatalf("snapshot = %+v", got.planLimits)
+	}
+	if len(got.planLimits.Windows) != 2 {
+		t.Fatalf("windows = %+v, want primary and secondary", got.planLimits.Windows)
+	}
+	wire, err := json.Marshal(got.planLimits)
+	if err != nil {
+		t.Fatalf("marshal snapshot: %v", err)
+	}
+	for _, forbidden := range []string{"limit_id", "plan_type", "credits", "private"} {
+		if strings.Contains(string(wire), forbidden) {
+			t.Fatalf("snapshot leaked provider field %q: %s", forbidden, wire)
+		}
+	}
+}
+
+func TestCodexPlanLimitsMarksReachedWindowExhausted(t *testing.T) {
+	t.Parallel()
+
+	used := 93.0
+	minutes := int64(300)
+	got := codexPlanLimitsSnapshot(&codexRawRateLimits{
+		Primary:              &codexRawRateLimitWindow{UsedPercent: &used, WindowMinutes: &minutes},
+		RateLimitReachedType: "primary",
+	}, time.Time{})
+	if got == nil || got.Status != protocol.PlanLimitsStatusExhausted {
+		t.Fatalf("snapshot = %+v, want exhausted", got)
 	}
 }
 

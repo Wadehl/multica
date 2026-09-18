@@ -1,8 +1,23 @@
+import { useEffect, useState } from "react";
 import { Cloud, Monitor, Wifi, WifiHigh, WifiOff } from "lucide-react";
 import { Badge } from "@multica/ui/components/ui/badge";
 import type { RuntimeHealth } from "@multica/core/runtimes";
 import { ProviderLogo } from "./provider-logo";
 import { useT } from "../../i18n";
+
+/**
+ * Re-renders on an interval so relative labels and derived liveness (runtime
+ * health, quota windows past their reset boundary) advance without waiting for
+ * a refetch. Returns the current epoch milliseconds.
+ */
+export function useNowTick(intervalMs = 30_000): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
+  return now;
+}
 
 export function RuntimeModeIcon({ mode }: { mode: string }) {
   return mode === "cloud" ? (
