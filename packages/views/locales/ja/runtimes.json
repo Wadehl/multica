@@ -315,13 +315,17 @@
     "unavailable": "上限データは利用できません",
     "unavailable_hint": "上限スナップショットはまだ報告されていません。Codex は CLI セッション後に報告しますが、古いデーモンと未対応の CLI では利用できません。",
     "unavailable_hint_claude": "Claude Code は現在、セッション上限に達した場合にのみプラン上限を報告します。",
+    "unavailable_hint_grok": "Grok の割当量は Grok CLI の課金エンドポイントから取得するため、ランタイムを実行するマシンで Grok CLI にサインインしていない場合は利用できません。",
     "limit_reached": "上限に達しました",
     "used": "{{percent}}% 使用済み",
     "resets": "{{when}}にリセット",
     "window_5h": "5時間ウィンドウ",
     "window_7d": "7日間ウィンドウ",
     "window_primary": "現在のウィンドウ",
-    "window_secondary": "セカンダリウィンドウ"
+    "window_secondary": "セカンダリウィンドウ",
+    "window_30d": "30日間ウィンドウ",
+    "no_data": "データなし",
+    "status_bar_label": "プロバイダーの割当量ステータス"
   },
   "profiles": {
     "cta": "ランタイムを追加",

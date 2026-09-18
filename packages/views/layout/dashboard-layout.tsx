@@ -7,6 +7,7 @@ import { SourceBackfillModal } from "../onboarding";
 import { AppSidebar } from "./app-sidebar";
 import { DashboardGuard } from "./dashboard-guard";
 import { NavigationProgress } from "./navigation-progress";
+import { ProviderStatusBar } from "./provider-status-bar";
 import { WorkspacePresencePrefetch } from "./workspace-presence-prefetch";
 import { GlobalShortcuts } from "./global-shortcuts";
 
@@ -39,8 +40,13 @@ export function DashboardLayout({
         <WorkspacePresencePrefetch />
         <AppSidebar searchSlot={searchSlot} />
         <SidebarInset className="relative overflow-hidden">
+          {/* The page fills the column on its own; the status bar is appended
+              below it, so the page keeps a definite height to resolve `h-full`
+              against. Overlays stay outside this wrapper and keep positioning
+              against SidebarInset. */}
+          <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+          <ProviderStatusBar />
           <NavigationProgress />
-          {children}
           <ModalRegistry />
           <SourceBackfillModal />
           {extra}
