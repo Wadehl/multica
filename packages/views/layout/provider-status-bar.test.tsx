@@ -9,6 +9,17 @@ import { ProviderStatusBar, ProviderStatusBarView } from "./provider-status-bar"
 // The bar reads the wall clock, so the fixtures are anchored to it: a snapshot
 // older than a day is treated as stale and drops out.
 const NOW = Math.floor(Date.now() / 1000);
+const RESET_AT = NOW + 3_600;
+
+// The bar prints the reset boundary with the reader's locale rules, so the
+// expectation is built the same way rather than pinned to one machine's
+// timezone.
+const RESET_LABEL = `Resets ${new Intl.DateTimeFormat("en", {
+  month: "short",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+}).format(new Date(RESET_AT * 1000))}`;
 
 const CODEX_SNAPSHOT: PlanLimitsSnapshot = {
   provider: "codex",
@@ -19,7 +30,7 @@ const CODEX_SNAPSHOT: PlanLimitsSnapshot = {
       name: "primary",
       used_percent: 42,
       window_minutes: 300,
-      resets_at: NOW + 3_600,
+      resets_at: RESET_AT,
     },
   ],
 };
@@ -31,7 +42,7 @@ describe("ProviderStatusBarView", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("labels the bar and lists each provider's window percentage", () => {
+  it("labels the bar and lists the quota each provider window has left", () => {
     renderWithI18n(
       <ProviderStatusBarView
         providers={[
@@ -48,7 +59,40 @@ describe("ProviderStatusBarView", () => {
     expect(screen.getByLabelText("Provider quota status")).toBeInTheDocument();
     expect(screen.getByText("Codex")).toBeInTheDocument();
     expect(screen.getByText("5h")).toBeInTheDocument();
-    expect(screen.getByText("42%")).toBeInTheDocument();
+    expect(screen.getByText("58% left")).toBeInTheDocument();
+    expect(screen.getByText(RESET_LABEL)).toBeInTheDocument();
+  });
+
+  it("reports a reached limit together with the moment it refreshes", () => {
+    renderWithI18n(
+      <ProviderStatusBarView
+        providers={[
+          {
+            provider: "codex",
+            runtimeCount: 1,
+            snapshot: {
+              provider: "codex",
+              status: "exhausted",
+              observed_at: NOW,
+              windows: [
+                {
+                  name: "primary",
+                  window_minutes: 300,
+                  resets_at: RESET_AT,
+                },
+              ],
+            },
+            windows: [
+              { name: "primary", window_minutes: 300, resets_at: RESET_AT },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("5h")).toBeInTheDocument();
+    expect(screen.getByText("Limit reached")).toBeInTheDocument();
+    expect(screen.getByText(RESET_LABEL)).toBeInTheDocument();
   });
 
   it("reports a provider that has reported no snapshot", () => {

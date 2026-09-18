@@ -10,6 +10,8 @@ import {
   PlanLimitsCell,
   planLimitWindowShortLabel,
   providerPlanLimits,
+  remainingPercent,
+  remainingWindows,
 } from "./plan-limits";
 
 const NOW = Date.UTC(2026, 7, 21, 12);
@@ -121,8 +123,36 @@ describe("providerPlanLimits", () => {
   });
 });
 
+describe("remainingPercent", () => {
+  it("mirrors the consumed percentage the provider reported", () => {
+    expect(remainingPercent({ name: "primary", used_percent: 42 })).toBe(58);
+  });
+
+  it("reports nothing left for a window at or past its limit", () => {
+    expect(remainingPercent({ name: "primary", used_percent: 100 })).toBe(0);
+    expect(remainingPercent({ name: "primary", used_percent: 120 })).toBe(0);
+  });
+
+  it("reports no percentage when the provider reported only a limit", () => {
+    expect(remainingPercent({ name: "primary" })).toBeNull();
+  });
+});
+
+describe("remainingWindows", () => {
+  it("keeps the windows carrying a percentage and drops the rest", () => {
+    expect(
+      remainingWindows([
+        { name: "primary", used_percent: 42 },
+        { name: "secondary" },
+      ]),
+    ).toEqual([
+      { window: { name: "primary", used_percent: 42 }, percent: 58 },
+    ]);
+  });
+});
+
 describe("PlanLimitsCell", () => {
-  it("renders the current Codex window percentage", () => {
+  it("renders the quota the Codex window has left", () => {
     const runtime = {
       plan_limits: SNAPSHOT,
     } as AgentRuntime;
@@ -133,7 +163,7 @@ describe("PlanLimitsCell", () => {
       </I18nProvider>,
     );
 
-    expect(screen.getByText("42%")).toBeInTheDocument();
+    expect(screen.getByText("58% left")).toBeInTheDocument();
     expect(screen.getByText("5h")).toBeInTheDocument();
   });
 });
