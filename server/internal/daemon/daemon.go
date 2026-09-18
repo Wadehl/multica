@@ -522,10 +522,11 @@ type Daemon struct {
 	// login-shell probe + version detection instead of one per task (MUL-4486).
 	healGroup singleflight.Group
 
-	wsHBMu       sync.RWMutex         // guards wsHBLastAck
-	wsHBLastAck  map[string]time.Time // runtime_id -> last successful WS heartbeat ack timestamp
-	planLimitsMu sync.RWMutex
-	planLimits   map[string]protocol.PlanLimitsSnapshot // runtime_id -> latest credential-free provider snapshot
+	wsHBMu              sync.RWMutex         // guards wsHBLastAck
+	wsHBLastAck         map[string]time.Time // runtime_id -> last successful WS heartbeat ack timestamp
+	planLimitsMu        sync.RWMutex
+	planLimits          map[string]protocol.PlanLimitsSnapshot // runtime_id -> latest credential-free provider snapshot
+	planLimitsFetchedAt map[string]time.Time                   // runtime_id -> last Grok billing attempt
 
 	// reconcile fans out a "re-check server state now" signal to subscribers
 	// (watchTaskCancellation, workspaceSyncLoop) so the WS connect/reconnect
@@ -712,6 +713,7 @@ func New(cfg Config, logger *slog.Logger) *Daemon {
 		resolvedPaths:             make(map[string]healedAgent),
 		wsHBLastAck:               make(map[string]time.Time),
 		planLimits:                make(map[string]protocol.PlanLimitsSnapshot),
+		planLimitsFetchedAt:       make(map[string]time.Time),
 		activeEnvRoots:            make(map[string]int),
 		deletingEnvRoots:          make(map[string]bool),
 		activeStores:              make(map[string]int),
@@ -4512,6 +4514,7 @@ func (d *Daemon) runHeartbeatTick(ctx context.Context, rid string) bool {
 		return false
 	}
 	d.logger.Debug("heartbeat: HTTP tick", "runtime_id", rid)
+	d.refreshPlanLimits(ctx, rid)
 	resp, err := d.client.SendHeartbeat(ctx, rid, d.planLimitsForRuntime(rid))
 	if err != nil {
 		if ctx.Err() == nil {

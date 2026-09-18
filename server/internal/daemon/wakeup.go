@@ -309,6 +309,7 @@ func (d *Daemon) sendWSHeartbeats(ctx context.Context, runtimeIDs []string, writ
 		if ctx.Err() != nil {
 			return
 		}
+		go d.refreshPlanLimits(ctx, rid)
 		frame, err := json.Marshal(protocol.Message{
 			Type: protocol.EventDaemonHeartbeat,
 			Payload: marshalRaw(protocol.DaemonHeartbeatRequestPayload{
