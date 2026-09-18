@@ -62,8 +62,10 @@ type grokBillingResponse struct {
 	grokBillingConfig
 }
 
-// FetchGrokPlanLimits 读取本机 Grok CLI 的 OAuth 会话并查询 billing 数据。
-// access token 只在本地请求中使用，返回值不包含 token、用户标识或账号信息。
+// FetchGrokPlanLimits reads the local Grok CLI OAuth session and queries the
+// CLI billing endpoint for subscription usage. The access token stays inside
+// this process, and the returned snapshot carries no token, account identifier,
+// plan name, or credit balance.
 func FetchGrokPlanLimits(ctx context.Context, env map[string]string) (*protocol.PlanLimitsSnapshot, error) {
 	session, err := readGrokAuthSession(env)
 	if err != nil {
