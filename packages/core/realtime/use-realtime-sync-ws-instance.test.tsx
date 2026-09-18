@@ -364,6 +364,9 @@ describe("useRealtimeSync — queued chat promotion", () => {
     expect(invalidate).toHaveBeenCalledWith({
       queryKey: chatKeys.messagesPage("session-1"),
     });
+    expect(invalidate).not.toHaveBeenCalledWith({
+      queryKey: chatKeys.pendingTask("session-1"),
+    });
   });
 });
 

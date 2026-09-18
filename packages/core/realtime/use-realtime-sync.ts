@@ -1541,7 +1541,6 @@ export function useRealtimeSync(
         (old) => promotePendingChatTask(old, payload.task_id, "running"),
       );
       invalidateChatMessageQueries(qc, payload.chat_session_id);
-      qc.invalidateQueries({ queryKey: chatKeys.pendingTask(payload.chat_session_id) });
       invalidatePendingAggregate();
     });
 
