@@ -3877,12 +3877,12 @@ type codexSessionTokenCount struct {
 	Timestamp time.Time `json:"timestamp"`
 	Type      string    `json:"type"`
 	Payload   *struct {
-		Type string `json:"type"`
-		Info *struct {
+		Type       string              `json:"type"`
+		RateLimits *codexRawRateLimits `json:"rate_limits"`
+		Info       *struct {
 			TotalTokenUsage *codexRawTokenUsage `json:"total_token_usage"`
 			LastTokenUsage  *codexRawTokenUsage `json:"last_token_usage"`
 			Model           string              `json:"model"`
-			RateLimits      *codexRawRateLimits `json:"rate_limits"`
 		} `json:"info"`
 		Model string `json:"model"`
 	} `json:"payload"`
@@ -3938,11 +3938,13 @@ func parseCodexSessionFileSince(path string, startTime time.Time, resumed bool) 
 			continue
 		}
 
+		// Codex writes rate_limits beside info under the token_count payload.
+		if evt.Payload.Type == "token_count" && evt.Payload.RateLimits != nil {
+			result.planLimits = codexPlanLimitsSnapshot(evt.Payload.RateLimits, evt.Timestamp)
+		}
+
 		// Extract token usage from token_count events.
 		if evt.Payload.Type == "token_count" && evt.Payload.Info != nil {
-			if rawLimits := evt.Payload.Info.RateLimits; rawLimits != nil {
-				result.planLimits = codexPlanLimitsSnapshot(rawLimits, evt.Timestamp)
-			}
 			afterStart := startTime.IsZero() || timestampAfterStart ||
 				(evt.Timestamp.IsZero() && (!resumed || afterStartBoundary))
 			if usage := evt.Payload.Info.TotalTokenUsage; usage != nil {
