@@ -89,6 +89,7 @@ func (h *Handler) buildDaemonWebSocketIdentity(w http.ResponseWriter, r *http.Re
 			rt.Status,
 			rt.LastSeenAt.Time,
 			rt.LastSeenAt.Valid,
+			rt.Provider,
 		)
 	}
 
