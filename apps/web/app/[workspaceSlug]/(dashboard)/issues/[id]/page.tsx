@@ -12,7 +12,7 @@ export default function IssueDetailPage({
   const { id } = use(params);
   return (
     <ErrorBoundary resetKeys={[id]}>
-      <IssueDetailRoute routeId={id} />
+      <IssueDetailRoute routeId={id} enableSteering />
     </ErrorBoundary>
   );
 }

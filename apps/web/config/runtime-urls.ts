@@ -96,10 +96,17 @@ export function resolveDevDocsUrl(env: RuntimeEnv): string {
 // (#6619). Returning undefined instead makes the browser fall back to
 // same-origin relative paths, which is what an unset value already does.
 export function resolveBrowserApiBaseUrl(env: RuntimeEnv): string | undefined {
+  // REMOTE_API_URL is consumed by the Next.js proxy. Keep browser requests
+  // same-origin in that mode so a local NEXT_PUBLIC_API_URL from `.env` cannot
+  // bypass the proxy and connect to an unrelated local backend.
+  if (cleanApiBaseUrl(env.REMOTE_API_URL)) return undefined;
   return cleanApiBaseUrl(env.NEXT_PUBLIC_API_URL);
 }
 
 export function resolveBrowserWsUrl(env: RuntimeEnv): string | undefined {
+  // The runtime proxy also owns WebSocket forwarding. A direct public URL here
+  // would bypass it in the same way as the HTTP client above.
+  if (cleanApiBaseUrl(env.REMOTE_API_URL)) return undefined;
   const explicit = cleanUrl(env.NEXT_PUBLIC_WS_URL);
   if (explicit) return explicit;
 

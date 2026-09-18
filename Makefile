@@ -1,4 +1,4 @@
-.PHONY: help makehelp dev server daemon cli multica build test migrate-up migrate-down sqlc seed clean setup start stop check worktree-env setup-main start-main stop-main check-main setup-worktree start-worktree stop-worktree check-worktree remove-worktree db-up db-down db-drop db-reset selfhost selfhost-build selfhost-stop up down status list destroy gc env-exec api-dev web-dev desktop-dev
+.PHONY: help makehelp dev server daemon cli multica build test migrate-up migrate-down sqlc seed clean setup start stop check worktree-env setup-main start-main stop-main check-main setup-worktree start-worktree stop-worktree check-worktree remove-worktree db-up db-down db-drop db-reset selfhost selfhost-build selfhost-stop up down status list destroy gc env-exec api-dev web-dev web-cloud-dev desktop-dev
 
 MAIN_ENV_FILE ?= .env
 WORKTREE_ENV_FILE ?= .env.worktree
@@ -185,6 +185,9 @@ api-dev: ## Run only the Go backend for the current env file
 
 web-dev: ## Run only the Next.js dev server for the current env file
 	pnpm dev:web
+
+web-cloud-dev: ## Run the Next.js dev server against the official Multica API
+	REMOTE_API_URL=https://api.multica.ai pnpm dev:web
 
 desktop-dev: ## Run only the Electron desktop app for the current env file
 	pnpm dev:desktop
