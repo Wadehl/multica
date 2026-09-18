@@ -315,14 +315,17 @@
     "unavailable": "暂无额度数据",
     "unavailable_hint": "尚未上报额度快照。Codex 会在运行一次 CLI 会话后上报；旧版守护进程和不支持的 CLI 会保持此状态。",
     "unavailable_hint_claude": "Claude Code 目前只有在会话额度用尽后才会报告套餐额度。",
-    "unavailable_hint_grok": "Grok CLI 当前没有可靠的非交互额度快照。",
+    "unavailable_hint_grok": "Grok 额度来自 Grok CLI 的计费接口，运行运行时的机器没有登录 Grok CLI 时会保持此状态。",
     "limit_reached": "额度已用尽",
     "used": "已使用 {{percent}}%",
     "resets": "{{when}}重置",
     "window_5h": "5 小时窗口",
     "window_7d": "7 天窗口",
     "window_primary": "当前窗口",
-    "window_secondary": "次级窗口"
+    "window_secondary": "次级窗口",
+    "window_30d": "30 天窗口",
+    "no_data": "暂无数据",
+    "status_bar_label": "提供方额度状态"
   },
   "profiles": {
     "cta": "添加运行时",

@@ -40,7 +40,11 @@
     "just_now": "たった今",
     "minutes_ago": "{{count}}分前",
     "hours_ago": "{{count}}時間前",
-    "days_ago": "{{count}}日前"
+    "days_ago": "{{count}}日前",
+    "due_now": "まもなく",
+    "in_minutes": "{{count}}分後",
+    "in_hours": "{{count}}時間後",
+    "in_days": "{{count}}日後"
   },
   "lark_bind": {
     "page_title": "Lark アカウントを連携",

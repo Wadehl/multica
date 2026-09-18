@@ -6,7 +6,7 @@ import type {
   PlanLimitWindow,
   PlanLimitsSnapshot,
 } from "@multica/core/types";
-import { useT, useTimeAgo } from "../../i18n";
+import { useT, useTimeAgo, useTimeUntil } from "../../i18n";
 
 const SNAPSHOT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
@@ -43,19 +43,85 @@ export function displayPlanLimits(
 export function planLimitWindowShortLabel(window: PlanLimitWindow): string {
   if (window.window_minutes === 300) return "5h";
   if (window.window_minutes === 10_080) return "7d";
+  if (window.window_minutes === 43_200) return "30d";
   return window.name;
 }
 
-function percentageTone(value: number): string {
+export function percentageTone(value: number): string {
   if (value >= 100) return "text-destructive";
   if (value >= 80) return "text-warning";
   return "text-foreground";
 }
 
-function percentageBarTone(value: number): string {
+export function percentageBarTone(value: number): string {
   if (value >= 100) return "bg-destructive";
   if (value >= 80) return "bg-warning";
   return "bg-primary";
+}
+
+/**
+ * Providers whose quota the app shell and the analytics page report. Kept in
+ * one list so a provider can never appear in one surface and be missing from
+ * the other; adding a provider here is the whole change.
+ */
+export const TRACKED_PLAN_LIMIT_PROVIDERS = ["codex", "grok"] as const;
+
+export interface ProviderPlanLimits {
+  provider: string;
+  /** Runtimes of this provider in the workspace, reporting or not. */
+  runtimeCount: number;
+  /** Newest observation that is still current, or null when none is. */
+  snapshot: PlanLimitsSnapshot | null;
+  /** Windows of `snapshot`; empty when the snapshot is null. */
+  windows: PlanLimitWindow[];
+}
+
+/**
+ * Folds a workspace's runtimes into one quota entry per tracked provider.
+ *
+ * Quota belongs to the account behind a CLI, not to a single machine, so
+ * several runtimes of the same provider collapse into the newest observation
+ * they reported between them. Runtimes that reported nothing still produce an
+ * entry: "this provider is present but has no quota data" is a state the
+ * reader needs, and dropping the provider would read as "not installed".
+ */
+export function providerPlanLimits(
+  runtimes: readonly AgentRuntime[],
+  nowMs = Date.now(),
+): ProviderPlanLimits[] {
+  const entries = TRACKED_PLAN_LIMIT_PROVIDERS.map((provider) => ({
+    provider,
+    runtimeCount: 0,
+    snapshot: null as PlanLimitsSnapshot | null,
+    windows: [] as PlanLimitWindow[],
+  }));
+
+  for (const runtime of runtimes) {
+    const provider = runtime.provider?.trim().toLowerCase();
+    const entry = entries.find((candidate) => candidate.provider === provider);
+    if (!entry) continue;
+    entry.runtimeCount += 1;
+
+    const display = displayPlanLimits(runtime.plan_limits, nowMs);
+    if (!display) continue;
+    if (entry.snapshot && entry.snapshot.observed_at >= display.snapshot.observed_at) {
+      continue;
+    }
+    entry.snapshot = display.snapshot;
+    entry.windows = display.windows;
+  }
+
+  return entries.filter((entry) => entry.runtimeCount > 0);
+}
+
+/** Windows carrying a usable percentage, the only ones worth drawing. */
+export function percentageWindows(
+  windows: readonly PlanLimitWindow[],
+): (PlanLimitWindow & { used_percent: number })[] {
+  return windows.filter(
+    (window): window is PlanLimitWindow & { used_percent: number } =>
+      window.used_percent != null,
+  );
 }
 
 export function PlanLimitsCell({
@@ -71,10 +137,7 @@ export function PlanLimitsCell({
     return <span className="text-caption text-faint-foreground">—</span>;
   }
 
-  const percentages = display.windows.filter(
-    (window): window is PlanLimitWindow & { used_percent: number } =>
-      window.used_percent != null,
-  );
+  const percentages = percentageWindows(display.windows);
   if (percentages.length === 0) {
     return (
       <span className="truncate text-caption font-medium text-destructive">
@@ -103,7 +166,7 @@ export function PlanLimitsCell({
   );
 }
 
-function windowLabel(
+export function planLimitWindowLabel(
   window: PlanLimitWindow,
   t: ReturnType<typeof useT<"runtimes">>["t"],
 ): string {
@@ -113,6 +176,9 @@ function windowLabel(
   if (window.window_minutes === 10_080) {
     return t(($) => $.plan_limits.window_7d);
   }
+  if (window.window_minutes === 43_200) {
+    return t(($) => $.plan_limits.window_30d);
+  }
   if (window.name === "primary") {
     return t(($) => $.plan_limits.window_primary);
   }
@@ -120,6 +186,50 @@ function windowLabel(
     return t(($) => $.plan_limits.window_secondary);
   }
   return window.name;
+}
+
+/** One quota window: label, percentage, bar, and the reset it counts down to. */
+export function PlanLimitWindowRow({ window }: { window: PlanLimitWindow }) {
+  const { t } = useT("runtimes");
+  const timeUntil = useTimeUntil();
+  const used = window.used_percent;
+  const reset = window.resets_at
+    ? timeUntil(new Date(window.resets_at * 1000).toISOString())
+    : null;
+
+  return (
+    <div className="px-4 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-caption font-medium">
+          {planLimitWindowLabel(window, t)}
+        </span>
+        {used != null ? (
+          <span
+            className={`text-caption font-semibold tabular-nums ${percentageTone(used)}`}
+          >
+            {t(($) => $.plan_limits.used, { percent: Math.round(used) })}
+          </span>
+        ) : (
+          <span className="text-caption font-medium text-destructive">
+            {t(($) => $.plan_limits.limit_reached)}
+          </span>
+        )}
+      </div>
+      {used != null && (
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+          <div
+            className={`h-full rounded-full ${percentageBarTone(used)}`}
+            style={{ width: `${Math.min(100, used)}%` }}
+          />
+        </div>
+      )}
+      {reset && (
+        <p className="mt-1.5 text-caption text-muted-foreground">
+          {t(($) => $.plan_limits.resets, { when: reset })}
+        </p>
+      )}
+    </div>
+  );
 }
 
 export function PlanLimitsCard({
@@ -173,47 +283,9 @@ export function PlanLimitsCard({
         </div>
       ) : (
         <div className="divide-y">
-          {display.windows.map((window) => {
-            const used = window.used_percent;
-            const reset = window.resets_at
-              ? timeAgo(new Date(window.resets_at * 1000).toISOString())
-              : null;
-            return (
-              <div key={window.name} className="px-4 py-3">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-caption font-medium">
-                    {windowLabel(window, t)}
-                  </span>
-                  {used != null ? (
-                    <span
-                      className={`text-caption font-semibold tabular-nums ${percentageTone(used)}`}
-                    >
-                      {t(($) => $.plan_limits.used, {
-                        percent: Math.round(used),
-                      })}
-                    </span>
-                  ) : (
-                    <span className="text-caption font-medium text-destructive">
-                      {t(($) => $.plan_limits.limit_reached)}
-                    </span>
-                  )}
-                </div>
-                {used != null && (
-                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
-                    <div
-                      className={`h-full rounded-full ${percentageBarTone(used)}`}
-                      style={{ width: `${Math.min(100, used)}%` }}
-                    />
-                  </div>
-                )}
-                {reset && (
-                  <p className="mt-1.5 text-caption text-muted-foreground">
-                    {t(($) => $.plan_limits.resets, { when: reset })}
-                  </p>
-                )}
-              </div>
-            );
-          })}
+          {display.windows.map((window) => (
+            <PlanLimitWindowRow key={window.name} window={window} />
+          ))}
         </div>
       )}
     </section>

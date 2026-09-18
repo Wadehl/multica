@@ -29,6 +29,7 @@ import { useViewingTimezone } from "../../common/use-viewing-timezone";
 import { PAGE_GUTTER } from "../../layout/page-header";
 import { CollectionPageHeader } from "../../layout/collection-page";
 import { KpiCard } from "../../runtimes/components/shared";
+import { ProviderPlanLimitsCard } from "../../runtimes/components/provider-plan-limits-card";
 import { useNavigation } from "../../navigation";
 import {
   addDaysIso,
@@ -527,6 +528,10 @@ export function DashboardPage() {
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-6xl p-6">
           <TabsContent value="usage" className="space-y-5">
+            {/* Quota is account-scoped and carries its own observation time,
+                so it sits outside the range/project scope and outside the
+                usage rollups' loading and empty states. */}
+            <ProviderPlanLimitsCard />
             {usageLoading ? (
               <DashboardSkeleton />
             ) : usageHasNoData ? (

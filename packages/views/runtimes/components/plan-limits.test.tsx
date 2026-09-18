@@ -9,6 +9,7 @@ import {
   displayPlanLimits,
   PlanLimitsCell,
   planLimitWindowShortLabel,
+  providerPlanLimits,
 } from "./plan-limits";
 
 const NOW = Date.UTC(2026, 7, 21, 12);
@@ -58,6 +59,65 @@ describe("displayPlanLimits", () => {
 
   it("uses provider window durations for compact labels", () => {
     expect(planLimitWindowShortLabel(SNAPSHOT.windows![0]!)).toBe("5h");
+  });
+
+  it("labels the Grok monthly window by its duration", () => {
+    expect(
+      planLimitWindowShortLabel({ name: "monthly", window_minutes: 43_200 }),
+    ).toBe("30d");
+  });
+});
+
+describe("providerPlanLimits", () => {
+  function runtime(
+    provider: string,
+    plan_limits: PlanLimitsSnapshot | null,
+  ): AgentRuntime {
+    return { id: `${provider}-${plan_limits?.observed_at ?? 0}`, provider, plan_limits } as AgentRuntime;
+  }
+
+  it("keeps the newest observation when several runtimes share a provider", () => {
+    const older: PlanLimitsSnapshot = {
+      ...SNAPSHOT,
+      observed_at: NOW / 1000 - 600,
+      windows: [{ ...SNAPSHOT.windows![0]!, used_percent: 10 }],
+    };
+
+    const [codex] = providerPlanLimits(
+      [runtime("codex", older), runtime("codex", SNAPSHOT)],
+      NOW,
+    );
+
+    expect(codex!.runtimeCount).toBe(2);
+    expect(codex!.snapshot).toBe(SNAPSHOT);
+    expect(codex!.windows[0]!.used_percent).toBe(42);
+  });
+
+  it("keeps a provider whose runtimes reported nothing", () => {
+    const [grok] = providerPlanLimits([runtime("grok", null)], NOW);
+
+    expect(grok!.provider).toBe("grok");
+    expect(grok!.runtimeCount).toBe(1);
+    expect(grok!.snapshot).toBeNull();
+    expect(grok!.windows).toEqual([]);
+  });
+
+  it("drops an observation whose only window passed its reset boundary", () => {
+    const [codex] = providerPlanLimits([runtime("codex", SNAPSHOT)], NOW + 61_000);
+
+    expect(codex!.runtimeCount).toBe(1);
+    expect(codex!.snapshot).toBeNull();
+  });
+
+  it("omits providers the workspace has no runtime for", () => {
+    expect(providerPlanLimits([runtime("claude", SNAPSHOT)], NOW)).toEqual([]);
+  });
+
+  it("matches the provider name case-insensitively", () => {
+    const [codex] = providerPlanLimits([runtime(" Codex ", SNAPSHOT)], NOW);
+
+    expect(codex!.provider).toBe("codex");
+    expect(codex!.runtimeCount).toBe(1);
   });
 });
 
