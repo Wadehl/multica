@@ -5782,6 +5782,62 @@ func (h *Handler) ListTaskMessagesByUser(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, resp)
 }
 
+type steerTaskRequest struct {
+	Input string `json:"input"`
+}
+
+type steerTaskResponse struct {
+	Status string `json:"status"`
+}
+
+// SteerTask sends a live-turn instruction to the daemon that owns the issue
+// task. The daemon applies the instruction to the provider session currently
+// registered for that task.
+func (h *Handler) SteerTask(w http.ResponseWriter, r *http.Request) {
+	issue, ok := h.loadIssueForUser(w, r, chi.URLParam(r, "id"))
+	if !ok {
+		return
+	}
+	taskID := chi.URLParam(r, "taskId")
+	taskUUID, ok := parseUUIDOrBadRequest(w, taskID, "task_id")
+	if !ok {
+		return
+	}
+	task, err := h.Queries.GetAgentTask(r.Context(), taskUUID)
+	if err != nil || !task.IssueID.Valid || task.IssueID != issue.ID {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	if task.Status != "running" {
+		writeError(w, http.StatusConflict, "task is not running")
+		return
+	}
+	if h.DaemonHub == nil || !task.RuntimeID.Valid {
+		writeError(w, http.StatusConflict, "task session is unavailable")
+		return
+	}
+
+	var req steerTaskRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid steering request")
+		return
+	}
+	input := strings.TrimSpace(req.Input)
+	if input == "" {
+		writeError(w, http.StatusBadRequest, "input is required")
+		return
+	}
+	if len(input) > 16_000 {
+		writeError(w, http.StatusBadRequest, "input is too long")
+		return
+	}
+	if !h.DaemonHub.SendTaskSteer(uuidToString(task.RuntimeID), taskID, input, uuid.NewString()) {
+		writeError(w, http.StatusConflict, "daemon session is unavailable")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, steerTaskResponse{Status: "accepted"})
+}
+
 // GetIssueUsage returns aggregated token usage for all tasks belonging to an issue.
 func (h *Handler) GetIssueUsage(w http.ResponseWriter, r *http.Request) {
 	issueID := chi.URLParam(r, "id")

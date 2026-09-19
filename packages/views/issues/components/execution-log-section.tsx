@@ -312,6 +312,7 @@ export function ActiveTaskRow({
   const { t } = useT("issues");
   const [cancelling, setCancelling] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [steeringOpen, setSteeringOpen] = useState(false);
   const tone = STATUS_TONE[task.status];
   const label = useStatusLabel(task.status);
   const trigger = useTriggerText(task);
@@ -364,7 +365,7 @@ export function ActiveTaskRow({
     <RowShell task={task}>
       <TriggerText text={trigger} />
       <TaskCommentCoverage task={task} />
-      <RowStatus title={label}>
+      <RowStatus title={label} forceHidden={steeringOpen}>
         {task.status === "running" ? (
           <>
             <span className="text-info tabular-nums">{elapsed}</span>
@@ -374,7 +375,7 @@ export function ActiveTaskRow({
           <span className={`${tone} min-w-0 truncate`}>{label}</span>
         )}
       </RowStatus>
-      <RowActions>
+      <RowActions forceVisible={steeringOpen}>
         {showTranscript && (
           <TranscriptButton
             task={task}
@@ -382,6 +383,13 @@ export function ActiveTaskRow({
             isLive={task.status === "running"}
             title={t(($) => $.execution_log.transcript_tooltip)}
             onOpenChange={onTranscriptOpenChange}
+          />
+        )}
+        {showSteering && task.status === "running" && (
+          <SteerTaskPopover
+            issueId={issueId}
+            task={task}
+            onOpenChange={setSteeringOpen}
           />
         )}
         <Tooltip>
@@ -416,6 +424,97 @@ export function ActiveTaskRow({
         }
       />
     </RowShell>
+  );
+}
+
+function SteerTaskPopover({
+  issueId,
+  task,
+  onOpenChange,
+}: {
+  issueId: string;
+  task: AgentTask;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { t } = useT("issues");
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    setOpen(nextOpen);
+    onOpenChange(nextOpen);
+  };
+
+  const handleSend = async () => {
+    const value = input.trim();
+    if (!value || sending) return;
+    setSending(true);
+    try {
+      await api.steerTask(issueId, task.id, value);
+      setInput("");
+      handleOpenChange(false);
+      toast.success(t(($) => $.execution_log.steer_sent));
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t(($) => $.execution_log.steer_failed),
+      );
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <Popover open={open} onOpenChange={handleOpenChange}>
+      <PopoverTrigger
+        render={
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label={t(($) => $.execution_log.steer_aria)}
+            title={t(($) => $.execution_log.steer_aria)}
+          />
+        }
+      >
+        <MessageSquare aria-hidden="true" className="size-3.5" />
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        side="top"
+        sideOffset={8}
+        className="w-80 gap-3 p-3"
+      >
+        <div className="space-y-0.5">
+          <p className="text-label font-medium">{t(($) => $.execution_log.steer_title)}</p>
+          <p className="text-caption text-muted-foreground">
+            {t(($) => $.execution_log.steer_description)}
+          </p>
+        </div>
+        <Textarea
+          value={input}
+          onChange={(event) => setInput(event.target.value)}
+          placeholder={t(($) => $.execution_log.steer_placeholder)}
+          rows={3}
+          className="min-h-20 resize-none text-body"
+          disabled={sending}
+        />
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            size="sm"
+            variant="brandSubtle"
+            disabled={!input.trim() || sending}
+            onClick={() => void handleSend()}
+          >
+            {sending ? <Loader2 aria-hidden="true" className="animate-spin" /> : <Send aria-hidden="true" />}
+            {t(($) => $.execution_log.steer_send)}
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -631,14 +730,16 @@ export function TaskCommentCoverage({ task }: { task: AgentTask }) {
 function RowStatus({
   children,
   title,
+  forceHidden = false,
 }: {
   children: React.ReactNode;
   title?: string;
+  forceHidden?: boolean;
 }) {
   return (
     <div
       title={title}
-      className="flex h-7 shrink-0 items-center justify-end gap-1 overflow-hidden whitespace-nowrap text-caption [@media(hover:hover)]:group-hover/execution-log-row:hidden"
+      className={`flex h-7 shrink-0 items-center justify-end gap-1 overflow-hidden whitespace-nowrap text-caption [@media(hover:hover)]:group-hover/execution-log-row:hidden ${forceHidden ? "hidden" : ""}`}
     >
       {children}
     </div>
@@ -647,9 +748,9 @@ function RowStatus({
 
 // Action slot — visible by default for touch devices. On hover-capable
 // surfaces, it replaces the status column in place on row hover.
-function RowActions({ children }: { children: React.ReactNode }) {
+function RowActions({ children, forceVisible = false }: { children: React.ReactNode; forceVisible?: boolean }) {
   return (
-    <div className="flex h-7 items-center gap-0.5 [@media(hover:hover)]:hidden [@media(hover:hover)]:group-hover/execution-log-row:flex">
+    <div className={`flex h-7 items-center gap-0.5 [@media(hover:hover)]:hidden [@media(hover:hover)]:group-hover/execution-log-row:flex ${forceVisible ? "!flex" : ""}`}>
       {children}
     </div>
   );

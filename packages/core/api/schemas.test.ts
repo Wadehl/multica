@@ -54,6 +54,7 @@ import {
   RuntimeUsageByHourListSchema,
   RuntimeUsageListSchema,
   SendChatMessageResponseSchema,
+  SteerTaskResponseSchema,
   SquadListSchema,
   SquadSchema,
   SourceContextPreviewSchema,
@@ -167,6 +168,19 @@ describe("ChatSessionSchema", () => {
     expect(parsed[1]?.last_message?.message_kind).toBe("onboarding_opening");
   });
 });
+
+describe("SteerTaskResponseSchema", () => {
+  it("accepts an omitted status and falls back for malformed responses", () => {
+    expect(SteerTaskResponseSchema.parse({}).status).toBe("accepted");
+    expect(parseWithFallback(
+      { status: 42 },
+      SteerTaskResponseSchema,
+      { status: "accepted" },
+      { endpoint: "POST /api/issues/:id/tasks/:taskId/steer" },
+    )).toEqual({ status: "accepted" });
+  });
+});
+
 describe("IssueSchema (via ListIssuesResponseSchema)", () => {
   // A custom status key can be derived rather than readable — "客户确认" becomes
   // `in_review_2` — so the display name travels with it. The field has to

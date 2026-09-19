@@ -158,6 +158,7 @@ const (
 	// itself: the daemon still pulls the request through the normal heartbeat
 	// claim, so a lost or duplicated hint is harmless.
 	EventDaemonPendingWork = "daemon:pending_work"
+	EventDaemonTaskSteer   = "daemon:task_steer"
 	// Generic daemon→server request/response over the WebSocket control
 	// connection (MUL-4257). The daemon sends EventDaemonRPCRequest with a
 	// correlation id + method + body; the server replies EventDaemonRPCResponse

@@ -164,6 +164,15 @@ type PendingWorkPayload struct {
 	Kind      string `json:"kind,omitempty"`
 }
 
+// TaskSteerPayload carries a user instruction from the API to the daemon that
+// owns the live task session.
+type TaskSteerPayload struct {
+	RuntimeID           string `json:"runtime_id"`
+	TaskID              string `json:"task_id"`
+	Input               string `json:"input"`
+	ClientUserMessageID string `json:"client_user_message_id"`
+}
+
 // TaskProgressPayload is sent from daemon to server during task execution.
 type TaskProgressPayload struct {
 	TaskID  string `json:"task_id"`

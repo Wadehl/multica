@@ -88,6 +88,17 @@ describe("ActiveTaskRow", () => {
     expect(screen.getByText("View transcript")).toBeInTheDocument();
     expect(mockState.taskMessagesOptions).not.toHaveBeenCalled();
   });
+  it("uses the native web steering popover beside the running controls", () => {
+    renderWithI18n(
+      <ActiveTaskRow task={makeTask()} issueId="issue-1" showSteering />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Guide current run" }));
+
+    expect(screen.getByText("Guide this run")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Tell the agent what to do next...")).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+  });
 });
 
 describe("TaskCommentCoverage", () => {

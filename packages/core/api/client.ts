@@ -33,6 +33,7 @@ import type {
   AgentEnvResponse,
   UpdateAgentEnvRequest,
   AgentTask,
+  SteerTaskResponse,
   AgentActivityBucket,
   AgentRunCount,
   WorkspaceWorkingAgent,
@@ -317,6 +318,7 @@ import {
   CreateIssueResponseSchema,
   IssueSchema,
   AgentTaskSchema,
+  SteerTaskResponseSchema,
   SourceContextPreviewSchema,
   CommentSubIssueTaskResponseSchema,
   ListWebhookDeliveriesResponseSchema,
@@ -2611,6 +2613,16 @@ export class ApiClient {
     });
     if (!task) throw new Error("Invalid task cancellation response");
     return task;
+  }
+
+  async steerTask(issueId: string, taskId: string, input: string): Promise<SteerTaskResponse> {
+    const raw = await this.fetch<unknown>(`/api/issues/${issueId}/tasks/${taskId}/steer`, {
+      method: "POST",
+      body: JSON.stringify({ input }),
+    });
+    return parseWithFallback<SteerTaskResponse>(raw, SteerTaskResponseSchema, { status: "accepted" }, {
+      endpoint: "POST /api/issues/:id/tasks/:taskId/steer",
+    });
   }
 
   async rerunIssue(issueId: string, taskId?: string): Promise<AgentTask> {
