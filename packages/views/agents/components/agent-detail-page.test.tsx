@@ -70,7 +70,10 @@ const mockUpdateAgent = vi.hoisted(() => vi.fn());
 vi.mock("@multica/core/hooks", () => ({
   useWorkspaceId: () => "ws-1",
 }));
-vi.mock("@multica/core/agents", () => ({
+// Stubs the hooks; the pure readers stay real, so the lineup row is exercised
+// through the same normalisation the inspector's editor writes against.
+vi.mock("@multica/core/agents", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@multica/core/agents")>()),
   isAgentRuntimeBound: (agent: { runtime_id: string; runtime_bound?: boolean }) =>
     agent.runtime_bound !== false && agent.runtime_id.length > 0,
   useWorkspacePresenceMap: () => ({ byAgent: new Map() }),
@@ -266,6 +269,47 @@ describe("AgentDetailPage switchable models", () => {
       await screen.findByRole("button", { name: "Assign work" }),
     ).toBeInTheDocument();
     expect(screen.queryByText("Model lineup")).not.toBeInTheDocument();
+  });
+
+  // The lineup row is where DENE-610 was reported from: the reader sees it in
+  // the header and has to find the editor. This entry is that jump.
+  it("opens the general settings tab from the lineup row's edit entry", async () => {
+    membersRef.current = [{ user_id: "user-1", role: "admin" }];
+    agentsRef.current = [
+      {
+        ...baseAgent,
+        switchable_models: [
+          { model: "claude-opus-5", role: "default", note: "" },
+        ],
+      },
+    ];
+
+    renderPage();
+
+    const edit = await screen.findByTestId("switchable-models-edit");
+    fireEvent.click(edit);
+
+    await waitFor(() =>
+      expect(panePropsRef.current?.navIntent).toBe("general"),
+    );
+  });
+
+  it("hides the lineup edit entry from a member who cannot edit", async () => {
+    agentsRef.current = [
+      {
+        ...baseAgent,
+        switchable_models: [
+          { model: "claude-opus-5", role: "default", note: "" },
+        ],
+      },
+    ];
+
+    renderPage();
+
+    expect(await screen.findByText("Model lineup")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("switchable-models-edit"),
+    ).not.toBeInTheDocument();
   });
 });
 
