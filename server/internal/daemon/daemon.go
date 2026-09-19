@@ -720,6 +720,7 @@ func New(cfg Config, logger *slog.Logger) *Daemon {
 	// Tag every daemon HTTP request with the daemon's CLI version so the
 	// server can split logs/metrics by client version (parallel to the CLI).
 	client.SetVersion(cfg.CLIVersion)
+	repocache.SetGitTimeout(cfg.RepoCacheGitTimeout)
 	d := &Daemon{
 		cfg:                       cfg,
 		client:                    client,
@@ -4010,8 +4011,7 @@ func (d *Daemon) ensureRepoReady(ctx context.Context, workspaceID, repoURL strin
 		return nil
 	}
 
-	resp, err := d.refreshWorkspaceRepos(ctx, workspaceID)
-	if err != nil {
+	if _, err := d.refreshWorkspaceRepos(ctx, workspaceID); err != nil {
 		return fmt.Errorf("refresh workspace repos: %w", err)
 	}
 
@@ -4023,8 +4023,24 @@ func (d *Daemon) ensureRepoReady(ctx context.Context, workspaceID, repoURL strin
 		return nil
 	}
 
-	d.syncWorkspaceReposContext(ctx, workspaceID, resp.Repos)
-	if err := ctx.Err(); err != nil {
+	// The download belongs to the shared cache, not to the task that happened
+	// to ask first. Run it detached from the request so a stopped or timed-out
+	// task does not kill it: it keeps going for the next caller, which finds
+	// either a ready cache or the repo lock held by this same download.
+	syncDone := make(chan struct{})
+	d.bgSyncs.Add(1)
+	go func() {
+		defer d.bgSyncs.Done()
+		defer close(syncDone)
+		// Only the requested repo: Sync walks its list serially, and a cold
+		// download of some other large repo can now legitimately hold its
+		// slot for hours. The rest are covered by the registration-time and
+		// task-registration background syncs.
+		d.syncWorkspaceReposContext(context.WithoutCancel(ctx), workspaceID, []RepoData{{URL: repoURL}})
+	}()
+	select {
+	case <-syncDone:
+	case <-ctx.Done():
 		return context.Cause(ctx)
 	}
 
