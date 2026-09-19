@@ -541,6 +541,11 @@ type Daemon struct {
 	// detached, callers fall back to HTTP.
 	wsRPC *wsRPCClient
 
+	// activeSessions maps a claimed task to its live provider control so the
+	// server can deliver native Steering to the daemon that owns the task.
+	activeSessionsMu sync.RWMutex
+	activeSessions   map[string]agent.SessionControl
+
 	// batchClaimUnsupported is set once a batch claim gets a 404 from the
 	// server (no /api/daemon/tasks/claim route — an un-upgraded server), so
 	// subsequent polls skip WS+batch and use the legacy per-runtime claim
@@ -726,6 +731,7 @@ func New(cfg Config, logger *slog.Logger) *Daemon {
 		reconcile:                 newReconcileBroadcaster(),
 		workspaceChanges:          newWorkspaceChangeSignal(),
 		wsRPC:                     newWSRPCClient(wsRPCResponseGrace),
+		activeSessions:            make(map[string]agent.SessionControl),
 	}
 	d.activeEnvRootsCond = sync.NewCond(&d.activeEnvRootsMu)
 	d.activeStoresCond = sync.NewCond(&d.activeStoresMu)
@@ -9205,6 +9211,10 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 		err = agent.ExplainExecError(err)
 		taskLog.Debug("backend execute returned error", "error", err)
 		return agent.Result{}, 0, err
+	}
+	if session.Control != nil {
+		d.registerActiveSession(taskID, session.Control)
+		defer d.unregisterActiveSession(taskID, session.Control)
 	}
 	// This counter intentionally starts at the narrower provider-session
 	// boundary, not at the earlier server-side StartTask transition.

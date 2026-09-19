@@ -97,7 +97,7 @@ describe("ActiveTaskRow", () => {
     fireEvent.click(screen.getByRole("button", { name: "Guide current run" }));
 
     expect(screen.getByText("Guide this run")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("Tell the agent what to do next...")).toBeDisabled();
+    expect(screen.getByPlaceholderText("Tell the agent what to do next...")).toBeEnabled();
     expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
   });
 });

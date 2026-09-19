@@ -475,6 +475,29 @@ func (h *Hub) NotifyRuntimeGone(runtimeID string) {
 	h.notifyRuntimeGone(runtimeID, "")
 }
 
+// SendTaskSteer delivers a live-turn Steering request to the daemon hosting
+// runtimeID. It returns false when that daemon is not connected or cannot
+// accept another frame.
+func (h *Hub) SendTaskSteer(runtimeID, taskID, input, clientUserMessageID string) bool {
+	if h == nil || runtimeID == "" || taskID == "" {
+		return false
+	}
+	data, err := taskSteerFrame(runtimeID, taskID, input, clientUserMessageID)
+	if err != nil {
+		return false
+	}
+	h.mu.RLock()
+	clients := h.byRuntime[runtimeID]
+	delivered := false
+	for c := range clients {
+		if c.trySend(data) {
+			delivered = true
+		}
+	}
+	h.mu.RUnlock()
+	return delivered
+}
+
 func (h *Hub) notifyTaskAvailable(runtimeID, taskID, eventID string) {
 	if h == nil || runtimeID == "" {
 		return
@@ -790,6 +813,18 @@ func pendingWorkFrame(runtimeID, kind string) ([]byte, error) {
 		Payload: mustMarshalRaw(protocol.PendingWorkPayload{
 			RuntimeID: runtimeID,
 			Kind:      kind,
+		}),
+	})
+}
+
+func taskSteerFrame(runtimeID, taskID, input, clientUserMessageID string) ([]byte, error) {
+	return json.Marshal(protocol.Message{
+		Type: protocol.EventDaemonTaskSteer,
+		Payload: mustMarshalRaw(protocol.TaskSteerPayload{
+			RuntimeID:           runtimeID,
+			TaskID:              taskID,
+			Input:               input,
+			ClientUserMessageID: clientUserMessageID,
 		}),
 	})
 }

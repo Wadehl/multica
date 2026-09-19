@@ -431,6 +431,20 @@ func (d *Daemon) readTaskWakeupMessagesForConnection(conn *websocket.Conn, taskW
 			// Own goroutine: the hint triggers an HTTP heartbeat plus the work it
 			// claims, and the read pump must stay free for the next frame.
 			go d.handlePendingWorkHint(payload.RuntimeID, payload.Kind)
+		case protocol.EventDaemonTaskSteer:
+			var payload protocol.TaskSteerPayload
+			if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+				d.logger.Debug("task steering websocket invalid payload", "error", err)
+				continue
+			}
+			if payload.TaskID == "" || payload.Input == "" {
+				d.logger.Debug("task steering websocket missing task or input")
+				continue
+			}
+			go func(taskID, input, clientUserMessageID string) {
+				result := d.SteerTask(context.Background(), taskID, input, clientUserMessageID)
+				d.logger.Info("task steering request handled", "task_id", taskID, "status", result.Status, "error", result.Error)
+			}(payload.TaskID, payload.Input, payload.ClientUserMessageID)
 		case protocol.EventDaemonHeartbeatAck:
 			var ack HeartbeatResponse
 			if err := json.Unmarshal(msg.Payload, &ack); err != nil {

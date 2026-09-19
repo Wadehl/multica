@@ -656,6 +656,8 @@
     "steer_placeholder": "Tell the agent what to do next...",
     "steer_unavailable": "Steering is not connected yet",
     "steer_send": "Send",
+    "steer_sent": "Direction sent",
+    "steer_failed": "Failed to send direction",
     "trigger_retry": "Retry",
     "trigger_retry_attempt": "Retry #{{attempt}}",
     "trigger_retry_attempt_prefix": "Retry #{{attempt}} · ",

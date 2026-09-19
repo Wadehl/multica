@@ -633,6 +633,8 @@
     "steer_placeholder": "エージェントに次の指示を入力...",
     "steer_unavailable": "Steering はまだ接続されていません",
     "steer_send": "送信",
+    "steer_sent": "指示を送信しました",
+    "steer_failed": "指示を送信できませんでした",
     "trigger_retry": "再試行",
     "trigger_retry_attempt": "再試行 #{{attempt}}",
     "trigger_retry_attempt_prefix": "再試行 #{{attempt}} · ",
