@@ -8127,9 +8127,18 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	skills = task.Agent.Skills
 	instructions = task.Agent.Instructions
 
+	// Resolve any local_directory assignment here so runTask can plumb
+	// LocalWorkDir into execenv. handleTask already validated + locked the
+	// path for worker tasks; leader tasks intentionally skip the assignment.
+	//
+	// Resolved BEFORE the brief is built, not after: the brief has to state
+	// which repositories this machine already holds, and it cannot do that
+	// without knowing whether a directory is pinned here at all (DENE-595).
+	localAssignment, _ := d.resolveLocalDirectoryAssignment(task)
+
 	// Prepare isolated execution environment.
-	// Repos are passed as metadata only — the agent checks them out on demand
-	// via `multica repo checkout <url>`.
+	// Repos the local directory does not already hold are passed as metadata
+	// only — the agent checks those out on demand via `multica repo checkout`.
 	taskCtx := execenv.TaskContextForEnv{
 		IssueID:             task.IssueID,
 		TriggerCommentID:    task.TriggerCommentID,
@@ -8226,10 +8235,6 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	if provider == "openclaw" {
 		openclawBin = entry.Path
 	}
-	// Resolve any local_directory assignment again here so runTask can plumb
-	// LocalWorkDir into execenv. handleTask already validated + locked the
-	// path for worker tasks; leader tasks intentionally skip the assignment.
-	localAssignment, _ := d.resolveLocalDirectoryAssignment(task)
 	// Reuse intentionally skipped for local_directory tasks: the prior
 	// WorkDir is the user's own path (always present) but the reuse path
 	// loses the envRoot association the GC loop needs, and re-running
@@ -8778,6 +8783,13 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	cancelPrepare()
 	_ = d.client.ReportProgress(ctx, task.ID, fmt.Sprintf("Launching %s", provider), 1, 2)
 
+	// Resolve the code source now that env.WorkDir exists. It has to name the
+	// directory the agent will actually be in: in worktree mode that is the
+	// task's own checkout, and naming the user's pinned path instead would tell
+	// the agent to commit into the working copy the mode exists to protect
+	// (DENE-595).
+	taskCtx.CodeSource = codeSourceForEnv(resolveTaskCodeSource(localAssignment, env.WorkDir, repoURLsOf(task.Repos), nil))
+
 	// usesCustomProfileCommand is the same provenance the backend receives as
 	// agent.Config.BuiltinRuntime: it separates the provider's own discovered
 	// binary from an arbitrary command speaking its protocol. Reused here so
@@ -9165,6 +9177,9 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		AgentID:     task.AgentID,
 		AgentName:   task.Agent.Name,
 		WorkDir:     env.WorkDir,
+		// The endpoint needs to know whether this project pinned a directory
+		// on this machine before it decides to clone anything (DENE-595).
+		LocalDirectory: localAssignment,
 	})
 	defer d.clearActiveRepoCheckoutTask(agentToken)
 
