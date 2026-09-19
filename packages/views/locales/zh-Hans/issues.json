@@ -633,6 +633,8 @@
     "steer_placeholder": "告诉智能体下一步做什么...",
     "steer_unavailable": "Steering 服务尚未连接",
     "steer_send": "发送",
+    "steer_sent": "引导内容已发送",
+    "steer_failed": "无法发送引导内容",
     "trigger_retry": "重试",
     "trigger_retry_attempt": "重试 #{{attempt}}",
     "trigger_retry_attempt_prefix": "重试 #{{attempt}} · ",

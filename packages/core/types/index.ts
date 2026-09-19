@@ -46,6 +46,7 @@ export type {
   StoredAgentDraft,
   UpdateAgentRequest,
   AgentEnvResponse,
+  SteerTaskResponse,
   UpdateAgentEnvRequest,
   Skill,
   SkillSummary,

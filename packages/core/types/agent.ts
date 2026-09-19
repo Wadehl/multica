@@ -452,6 +452,10 @@ export interface AgentTask {
   usage?: TaskUsage[];
 }
 
+export interface SteerTaskResponse {
+  status: "accepted" | (string & {});
+}
+
 /**
  * One (provider, model) slice of a single run's token usage.
  *

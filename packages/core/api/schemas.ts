@@ -1847,6 +1847,10 @@ export const AgentTaskSchema = z.object({
 
 export const AgentTaskListSchema = z.array(AgentTaskSchema);
 
+export const SteerTaskResponseSchema = z.object({
+  status: z.string().default("accepted"),
+}).loose();
+
 // One row of a run transcript. `output_truncated` gates a completeness claim
 // the UI makes about a tool's output, so it stays `.optional()` with no
 // default: a server that does not send it means "unknown", and defaulting it

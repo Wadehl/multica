@@ -633,6 +633,8 @@
     "steer_placeholder": "에이전트에게 다음 작업을 입력하세요...",
     "steer_unavailable": "Steering이 아직 연결되지 않았어요",
     "steer_send": "보내기",
+    "steer_sent": "지시를 보냈어요",
+    "steer_failed": "지시를 보내지 못했어요",
     "trigger_retry": "다시 시도",
     "trigger_retry_attempt": "{{attempt}}번째 다시 시도",
     "trigger_retry_attempt_prefix": "{{attempt}}번째 다시 시도 · ",
