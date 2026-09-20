@@ -106,6 +106,17 @@ describe("ProviderStatusBarView", () => {
     expect(screen.getByText("No data")).toBeInTheDocument();
   });
 
+  it("reports Claude alongside Codex and Grok", () => {
+    renderWithI18n(
+      <ProviderStatusBarView
+        providers={[{ provider: "claude", runtimeCount: 1, snapshot: null, windows: [] }]}
+      />,
+    );
+
+    expect(screen.getByText("Claude")).toBeInTheDocument();
+    expect(screen.getByText("No data")).toBeInTheDocument();
+  });
+
   it("reports a reached limit when the snapshot carries no percentage", () => {
     renderWithI18n(
       <ProviderStatusBarView
@@ -159,6 +170,7 @@ vi.mock("@tanstack/react-query", async () => {
 describe("ProviderStatusBar", () => {
   it("reads the workspace runtimes and reports their quota", () => {
     runtimeFixtures.runtimes = [
+      { id: "rt-0", provider: "claude", plan_limits: null } as AgentRuntime,
       { id: "rt-1", provider: "codex", plan_limits: CODEX_SNAPSHOT } as AgentRuntime,
       { id: "rt-2", provider: "grok", plan_limits: null } as AgentRuntime,
     ];
@@ -166,6 +178,7 @@ describe("ProviderStatusBar", () => {
     renderWithI18n(<ProviderStatusBar />);
 
     expect(screen.getByLabelText("Provider quota status")).toBeInTheDocument();
+    expect(screen.getByText("Claude")).toBeInTheDocument();
     expect(screen.getByText("Codex")).toBeInTheDocument();
     expect(screen.getByText("Grok")).toBeInTheDocument();
   });

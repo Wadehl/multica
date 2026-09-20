@@ -79,7 +79,7 @@ export function remainingBarTone(percent: number): string {
  * one list so a provider can never appear in one surface and be missing from
  * the other; adding a provider here is the whole change.
  */
-export const TRACKED_PLAN_LIMIT_PROVIDERS = ["codex", "grok"] as const;
+export const TRACKED_PLAN_LIMIT_PROVIDERS = ["claude", "codex", "grok"] as const;
 
 export interface ProviderPlanLimits {
   provider: string;
@@ -293,7 +293,9 @@ export function PlanLimitsCard({
           <p className="mt-1 text-caption text-muted-foreground">
             {runtime.provider === "claude"
               ? t(($) => $.plan_limits.unavailable_hint_claude)
-              : t(($) => $.plan_limits.unavailable_hint)}
+              : runtime.provider === "grok"
+                ? t(($) => $.plan_limits.unavailable_hint_grok)
+                : t(($) => $.plan_limits.unavailable_hint)}
           </p>
         </div>
       ) : display.windows.length === 0 ? (

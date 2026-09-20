@@ -104,6 +104,14 @@ describe("providerPlanLimits", () => {
     expect(grok!.windows).toEqual([]);
   });
 
+  it("keeps Claude in the shared provider quota surfaces", () => {
+    const [claude] = providerPlanLimits([runtime("claude", null)], NOW);
+
+    expect(claude!.provider).toBe("claude");
+    expect(claude!.runtimeCount).toBe(1);
+    expect(claude!.snapshot).toBeNull();
+  });
+
   it("drops an observation whose only window passed its reset boundary", () => {
     const [codex] = providerPlanLimits([runtime("codex", SNAPSHOT)], NOW + 61_000);
 
@@ -112,7 +120,7 @@ describe("providerPlanLimits", () => {
   });
 
   it("omits providers the workspace has no runtime for", () => {
-    expect(providerPlanLimits([runtime("claude", SNAPSHOT)], NOW)).toEqual([]);
+    expect(providerPlanLimits([runtime("reasonix", SNAPSHOT)], NOW)).toEqual([]);
   });
 
   it("matches the provider name case-insensitively", () => {
