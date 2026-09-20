@@ -96,9 +96,9 @@ export interface ProviderPlanLimits {
  *
  * Quota belongs to the account behind a CLI, not to a single machine, so
  * several runtimes of the same provider collapse into the newest observation
- * they reported between them. Runtimes that reported nothing still produce an
- * entry: "this provider is present but has no quota data" is a state the
- * reader needs, and dropping the provider would read as "not installed".
+ * they reported between them. Providers that have not produced a current
+ * snapshot are omitted: an unrecognised subscription should not turn into a
+ * noisy "No data" status in the quota surfaces.
  */
 export function providerPlanLimits(
   runtimes: readonly AgentRuntime[],
@@ -126,7 +126,9 @@ export function providerPlanLimits(
     entry.windows = display.windows;
   }
 
-  return entries.filter((entry) => entry.runtimeCount > 0);
+  return entries.filter(
+    (entry) => entry.runtimeCount > 0 && entry.snapshot !== null,
+  );
 }
 
 export interface RemainingWindow {

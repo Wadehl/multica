@@ -95,26 +95,26 @@ describe("ProviderStatusBarView", () => {
     expect(screen.getByText(RESET_LABEL)).toBeInTheDocument();
   });
 
-  it("reports a provider that has reported no snapshot", () => {
+  it("hides a provider that has not reported a snapshot", () => {
     renderWithI18n(
       <ProviderStatusBarView
         providers={[{ provider: "grok", runtimeCount: 1, snapshot: null, windows: [] }]}
       />,
     );
 
-    expect(screen.getByText("Grok")).toBeInTheDocument();
-    expect(screen.getByText("No data")).toBeInTheDocument();
+    expect(screen.queryByText("Grok")).not.toBeInTheDocument();
+    expect(screen.queryByText("No data")).not.toBeInTheDocument();
   });
 
-  it("reports Claude alongside Codex and Grok", () => {
+  it("hides Claude when its subscription is not recognised", () => {
     renderWithI18n(
       <ProviderStatusBarView
         providers={[{ provider: "claude", runtimeCount: 1, snapshot: null, windows: [] }]}
       />,
     );
 
-    expect(screen.getByText("Claude")).toBeInTheDocument();
-    expect(screen.getByText("No data")).toBeInTheDocument();
+    expect(screen.queryByText("Claude")).not.toBeInTheDocument();
+    expect(screen.queryByText("No data")).not.toBeInTheDocument();
   });
 
   it("reports a reached limit when the snapshot carries no percentage", () => {
@@ -178,9 +178,9 @@ describe("ProviderStatusBar", () => {
     renderWithI18n(<ProviderStatusBar />);
 
     expect(screen.getByLabelText("Provider quota status")).toBeInTheDocument();
-    expect(screen.getByText("Claude")).toBeInTheDocument();
+    expect(screen.queryByText("Claude")).not.toBeInTheDocument();
     expect(screen.getByText("Codex")).toBeInTheDocument();
-    expect(screen.getByText("Grok")).toBeInTheDocument();
+    expect(screen.queryByText("Grok")).not.toBeInTheDocument();
   });
 
   it("renders no bar when the workspace has no runtimes", () => {

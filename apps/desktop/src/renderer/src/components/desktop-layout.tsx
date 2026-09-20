@@ -17,6 +17,7 @@ import {
   AppSidebar,
   GlobalShortcuts,
   NavigationProgress,
+  ProviderStatusBar,
 } from "@multica/views/layout";
 import { SearchCommand, SearchTrigger } from "@multica/views/search";
 import { FloatingChat } from "@multica/views/chat";
@@ -301,6 +302,7 @@ export function DesktopShell() {
                 <TabContent />
                 {slug && <FloatingChat />}
               </MainCanvas>
+              {slug && <ProviderStatusBar />}
             </div>
           </SidebarProvider>
         </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useWorkspaceId } from "@multica/core/hooks";
+import { useCurrentWorkspace } from "@multica/core/paths";
 import { providerDisplayName } from "@multica/core/runtimes";
 import { runtimeListOptions } from "@multica/core/runtimes/queries";
 import {
@@ -35,9 +35,13 @@ import { useT, useDateTime, useTimeUntil } from "../i18n";
  * providers would turn a glanceable strip into a catalogue.
  */
 export function ProviderStatusBar() {
-  const wsId = useWorkspaceId();
+  const workspace = useCurrentWorkspace();
+  const wsId = workspace?.id ?? "";
   const now = useNowTick(60_000);
-  const { data: runtimes = [] } = useQuery(runtimeListOptions(wsId));
+  const { data: runtimes = [] } = useQuery({
+    ...runtimeListOptions(wsId),
+    enabled: Boolean(workspace),
+  });
 
   return (
     <ProviderStatusBarView providers={providerPlanLimits(runtimes, now)} />
@@ -50,14 +54,15 @@ export function ProviderStatusBarView({
   providers: ProviderPlanLimits[];
 }) {
   const { t } = useT("runtimes");
-  if (providers.length === 0) return null;
+  const visibleProviders = providers.filter((provider) => provider.snapshot !== null);
+  if (visibleProviders.length === 0) return null;
 
   return (
     <footer
       aria-label={t(($) => $.plan_limits.status_bar_label)}
       className="flex h-10 shrink-0 items-center gap-4 overflow-x-auto border-t bg-app-shell ps-3 pe-chat-launcher"
     >
-      {providers.map((provider) => (
+      {visibleProviders.map((provider) => (
         <ProviderStatusEntry key={provider.provider} provider={provider} />
       ))}
     </footer>

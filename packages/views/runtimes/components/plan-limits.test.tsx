@@ -95,28 +95,18 @@ describe("providerPlanLimits", () => {
     expect(codex!.windows[0]!.used_percent).toBe(42);
   });
 
-  it("keeps a provider whose runtimes reported nothing", () => {
-    const [grok] = providerPlanLimits([runtime("grok", null)], NOW);
-
-    expect(grok!.provider).toBe("grok");
-    expect(grok!.runtimeCount).toBe(1);
-    expect(grok!.snapshot).toBeNull();
-    expect(grok!.windows).toEqual([]);
+  it("omits a provider whose runtimes reported nothing", () => {
+    expect(providerPlanLimits([runtime("grok", null)], NOW)).toEqual([]);
   });
 
-  it("keeps Claude in the shared provider quota surfaces", () => {
-    const [claude] = providerPlanLimits([runtime("claude", null)], NOW);
-
-    expect(claude!.provider).toBe("claude");
-    expect(claude!.runtimeCount).toBe(1);
-    expect(claude!.snapshot).toBeNull();
+  it("omits Claude when its subscription is not recognised", () => {
+    expect(providerPlanLimits([runtime("claude", null)], NOW)).toEqual([]);
   });
 
   it("drops an observation whose only window passed its reset boundary", () => {
     const [codex] = providerPlanLimits([runtime("codex", SNAPSHOT)], NOW + 61_000);
 
-    expect(codex!.runtimeCount).toBe(1);
-    expect(codex!.snapshot).toBeNull();
+    expect(codex).toBeUndefined();
   });
 
   it("omits providers the workspace has no runtime for", () => {

@@ -65,6 +65,7 @@ vi.mock("@multica/views/layout", () => ({
   AppSidebar: () => null,
   GlobalShortcuts: () => null,
   NavigationProgress: () => null,
+  ProviderStatusBar: () => <div data-testid="provider-status-bar" />,
 }));
 
 vi.mock("@multica/views/modals/registry", () => ({ ModalRegistry: () => null }));
@@ -126,5 +127,6 @@ describe("DesktopShell sidebar trigger", () => {
       "data-external-trigger",
       "true",
     );
+    expect(getByTestId("provider-status-bar")).not.toBeNull();
   });
 });
