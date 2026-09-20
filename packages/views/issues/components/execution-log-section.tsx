@@ -6,6 +6,7 @@ import { ChevronRight, Loader2, RotateCcw, Square } from "lucide-react";
 import { toast } from "sonner";
 import { api, dispatchReasonCode } from "@multica/core/api";
 import { issueTasksOptions } from "@multica/core/issues/queries";
+import { useTaskMessages } from "@multica/core/chat/queries";
 import { useCustomPricingStore } from "@multica/core/runtimes/custom-pricing-store";
 import type { AgentTask } from "@multica/core/types";
 import { Button } from "@multica/ui/components/ui/button";
@@ -302,8 +303,9 @@ const STATUS_TONE: Record<AgentTask["status"], string> = {
 
 // One active (running / queued / dispatched / parked) task row. Running rows
 // keep status to a single live elapsed timer; transcript and stop stay available
-// as hover actions. Transcript content lazy-loads on click via TranscriptButton,
-// so the row no longer fetches task messages just to render a count.
+// as hover actions. Transcript content stays lazy-loaded for the normal row;
+// when Steering is enabled, the row also watches for the first provider
+// message so it does not expose Steering during connection setup.
 export function ActiveTaskRow({
   task,
   issueId,
@@ -382,7 +384,7 @@ export function ActiveTaskRow({
         )}
       </RowStatus>
       {showSteering && task.status === "running" && (
-        <SteerTaskPopover
+        <ActiveTaskSteering
           issueId={issueId}
           task={task}
           onOpenChange={setSteeringOpen}
@@ -431,6 +433,26 @@ export function ActiveTaskRow({
       />
     </RowShell>
   );
+}
+
+/**
+ * Do not expose Steering during the server-side running transition alone.
+ * The first persisted transcript message is the earliest provider-agnostic
+ * signal that the agent has reached its Turn; before that, the daemon may
+ * still be establishing the provider session.
+ */
+function ActiveTaskSteering({
+  issueId,
+  task,
+  onOpenChange,
+}: {
+  issueId: string;
+  task: AgentTask;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { data } = useTaskMessages(task.id, true, true);
+  if (!data || data.length === 0) return null;
+  return <SteerTaskPopover issueId={issueId} task={task} onOpenChange={onOpenChange} />;
 }
 
 // ─── Past row ──────────────────────────────────────────────────────────────

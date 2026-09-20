@@ -180,7 +180,9 @@ export function InlineCommentRun({ run, className, viewState, showIdentity = fal
           <ChevronRight ref={state.disclosure.chevronRef} aria-hidden className={cn("size-3.5 shrink-0", expanded && "rotate-90")} />
         </button>
         <span className={cn("shrink-0 whitespace-nowrap text-caption tabular-nums text-muted-foreground", showIdentity && !active && "@max-[32rem]/run:hidden")}>{elapsed}</span>
-        {task.status === "running" && <SteerTaskPopover issueId={task.issue_id} task={task} />}
+        {task.status === "running" && data && data.length > 0 && (
+          <SteerTaskPopover issueId={task.issue_id} task={task} />
+        )}
         {stopButton}
         {!hasReply && (task.status === "failed" || task.status === "cancelled") && <Button
           size="sm" variant="ghost" className={cn("text-muted-foreground", showIdentity && "@max-[32rem]/run:size-7 @max-[32rem]/run:p-0")} disabled={retry.isPending || retry.isSuccess}
@@ -230,7 +232,7 @@ function InlineStep({ row, live, formatText }: { row: TraceRow; live: boolean; f
     : steering ? t(($) => $.inline_run.steering_message)
     : row.kind === "thinking" ? thinkingPreview(row.item.content, formatText) || t(($) => $.inline_run.thinking)
     : t(($) => $.inline_run.error);
-  return <details className={cn("min-w-0 text-caption", steering && "rounded-xs bg-brand/5")} onToggle={onToggle}>
+  return <details className={cn("min-w-0 text-caption", steering && "text-brand")} onToggle={onToggle}>
     <summary onClick={disclosure.onTrigger} className="flex cursor-pointer list-none items-center gap-2 rounded-xs py-1.5 hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
       {pending ? <Loader2 aria-hidden className="size-3.5 shrink-0 animate-spin text-info motion-reduce:animate-none" />
         : <Icon aria-hidden className={cn("size-3.5 shrink-0", error ? "text-destructive" : steering ? "text-brand" : "text-muted-foreground")} />}
