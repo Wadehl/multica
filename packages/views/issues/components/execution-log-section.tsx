@@ -62,7 +62,7 @@ interface ExecutionLogSectionProps {
   issueId: string;
   /** Shown in the usage dialog's subtitle so the panel names what it totals. */
   identifier?: string;
-  /** Enables the web-only active-turn steering affordance. */
+  /** Enables the active-turn steering affordance. */
   showSteering?: boolean;
 }
 
