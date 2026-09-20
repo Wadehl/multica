@@ -2562,18 +2562,6 @@ func (c *codexClient) activeTurnID() string {
 	return c.turnID
 }
 
-func (c *codexClient) setThreadID(threadID string) {
-	c.threadIDMu.Lock()
-	c.threadID = threadID
-	c.threadIDMu.Unlock()
-}
-
-func (c *codexClient) activeThreadID() string {
-	c.threadIDMu.RLock()
-	defer c.threadIDMu.RUnlock()
-	return c.threadID
-}
-
 func (c *codexClient) activeTurn() (string, string, bool) {
 	c.threadIDMu.RLock()
 	threadID := c.threadID
