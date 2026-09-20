@@ -1528,6 +1528,7 @@ export interface RuntimeLocalSkillImportResult {
 export type RuntimeProviderPresetAction =
   | "list"
   | "upsert"
+  | "refresh"
   | "delete"
   | "activate";
 
