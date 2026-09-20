@@ -5547,6 +5547,53 @@ func (h *Handler) SteerTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "daemon session is unavailable")
 		return
 	}
+
+	// Steering is a user-authored task message, not only a transient daemon
+	// control frame. Persist it after the frame is accepted so transcript
+	// backfills show exactly what was sent even when the provider does not echo
+	// the instruction in its next answer.
+	nextSeq := int32(1)
+	if messages, err := h.Queries.ListTaskMessages(r.Context(), task.ID); err == nil {
+		for _, message := range messages {
+			if message.Seq >= nextSeq {
+				nextSeq = message.Seq + 1
+			}
+		}
+	} else {
+		slog.Error("failed to list task messages before Steering", "task_id", taskID, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to persist Steering message")
+		return
+	}
+
+	messageID, err := uuid.NewV7()
+	if err != nil {
+		slog.Error("failed to generate Steering task message id", "task_id", taskID, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to persist Steering message")
+		return
+	}
+	created, err := h.Queries.CreateTaskMessage(r.Context(), db.CreateTaskMessageParams{
+		ID:     pgtype.UUID{Bytes: [16]byte(messageID), Valid: true},
+		TaskID: task.ID,
+		Seq:    nextSeq,
+		Type:   "text",
+		Content: pgtype.Text{
+			String: util.SanitizeTextForPostgres(redact.Text(input)),
+			Valid:  true,
+		},
+	})
+	if err != nil {
+		slog.Error("failed to create Steering task message", "task_id", taskID, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to persist Steering message")
+		return
+	}
+	h.publishTask(
+		protocol.EventTaskMessage,
+		uuidToString(issue.WorkspaceID),
+		"user",
+		requestUserID(r),
+		taskID,
+		taskMessageToPayload(created, taskID, uuidToString(issue.ID)),
+	)
 	writeJSON(w, http.StatusAccepted, steerTaskResponse{Status: "accepted"})
 }
 
