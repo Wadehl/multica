@@ -208,6 +208,7 @@ type ChatQuickActionsPayload struct {
 
 // TaskMessagePayload represents a single execution transcript message (tool call, agent text, user Steering, etc.).
 type TaskMessagePayload struct {
+	ID      string         `json:"id,omitempty"` // stable database identity; seq is only an ordering key
 	TaskID  string         `json:"task_id"`
 	IssueID string         `json:"issue_id,omitempty"`
 	Seq     int            `json:"seq"`
