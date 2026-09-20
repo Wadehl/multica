@@ -52,6 +52,20 @@ describe("task transcript timeline", () => {
     ]);
   });
 
+  it("keeps Steering messages as standalone trace entries", () => {
+    const items = buildTimeline([
+      message(1, "text", "before"),
+      message(2, "steering", "stop and inspect this"),
+      message(3, "text", "after"),
+    ]);
+
+    expect(items).toEqual([
+      expect.objectContaining({ seq: 1, type: "text", content: "before" }),
+      expect.objectContaining({ seq: 2, type: "steering", content: "stop and inspect this" }),
+      expect.objectContaining({ seq: 3, type: "text", content: "after" }),
+    ]);
+  });
+
   it("coalesces newly appended live text with the previous text item", () => {
     const existing: TimelineItem[] = [{ seq: 1, type: "text", content: "hello" }];
     const items = appendTimelineItem(existing, { seq: 2, type: "text", content: " world" });

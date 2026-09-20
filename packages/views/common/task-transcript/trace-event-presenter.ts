@@ -27,6 +27,7 @@ export interface TraceEvent {
 /** Visual kind driving color/emphasis. `generic` covers any unknown `type`. */
 export type TraceEventKind =
   | "agent"
+  | "steering"
   | "thinking"
   | "tool_use"
   | "tool_result"
@@ -37,6 +38,8 @@ export function traceEventKind(event: TraceEvent): TraceEventKind {
   switch (event.type) {
     case "text":
       return "agent";
+    case "steering":
+      return "steering";
     case "thinking":
       return "thinking";
     case "tool_use":
@@ -59,6 +62,8 @@ export function traceEventLabel(event: TraceEvent): string {
   switch (event.type) {
     case "text":
       return "Agent";
+    case "steering":
+      return "User message";
     case "thinking":
       return "Thinking";
     case "tool_use":
@@ -615,4 +620,3 @@ export function traceEventHasDetail(event: TraceEvent): boolean {
 export function traceEventSummaryIsMono(kind: TraceEventKind): boolean {
   return kind === "tool_use" || kind === "tool_result";
 }
-

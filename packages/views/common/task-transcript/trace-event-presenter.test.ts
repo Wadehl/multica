@@ -29,6 +29,7 @@ describe("traceEventSummary truncation", () => {
 describe("traceEventKind / traceEventLabel", () => {
   it("maps the five persisted types and keeps unknown types as generic", () => {
     expect(traceEventKind({ type: "text" })).toBe("agent");
+    expect(traceEventKind({ type: "steering" })).toBe("steering");
     expect(traceEventKind({ type: "thinking" })).toBe("thinking");
     expect(traceEventKind({ type: "tool_use" })).toBe("tool_use");
     expect(traceEventKind({ type: "tool_result" })).toBe("tool_result");
@@ -41,6 +42,7 @@ describe("traceEventKind / traceEventLabel", () => {
     expect(traceEventLabel({ type: "tool_result", tool: "patch_apply" })).toBe("patch_apply");
     expect(traceEventLabel({ type: "tool_use" })).toBe("Tool");
     expect(traceEventLabel({ type: "provider_custom" })).toBe("provider_custom");
+    expect(traceEventLabel({ type: "steering" })).toBe("User message");
   });
 });
 

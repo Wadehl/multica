@@ -33,9 +33,9 @@ export interface TraceCallStep {
   durationMs?: number;
 }
 
-/** Agent prose, model thinking, or an error: one message, nothing to pair. */
+/** Agent prose, user Steering, model thinking, or an error: one message, nothing to pair. */
 export interface TraceMessageStep {
-  kind: "text" | "thinking" | "error";
+  kind: "text" | "steering" | "thinking" | "error";
   seq: number;
   item: TimelineItem;
   startedAt?: string;
@@ -204,7 +204,7 @@ export function isCallStep(row: TraceRow): row is TraceCallStep {
 }
 
 export function isMessageStep(row: TraceRow): row is TraceMessageStep {
-  return row.kind === "text" || row.kind === "thinking" || row.kind === "error";
+  return row.kind === "text" || row.kind === "steering" || row.kind === "thinking" || row.kind === "error";
 }
 
 /** Every call inside a row, so a group and a lone call read the same way. */
