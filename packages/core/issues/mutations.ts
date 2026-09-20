@@ -7,6 +7,7 @@ import {
   type QueryKey,
 } from "@tanstack/react-query";
 import { api } from "../api";
+import { chatKeys, unionTaskMessagesBySeq } from "../chat/queries";
 import { issueKeys } from "./queries";
 import { projectKeys } from "../projects/queries";
 import { inboxKeys, type ArchivedInboxCache } from "../inbox/queries";
@@ -47,6 +48,7 @@ import type {
   UpdateIssueRequest,
 } from "../types";
 import type { TimelineEntry, IssueSubscriber, Reaction } from "../types";
+import type { TaskMessagePayload } from "../types/events";
 import { sortTimelineEntriesAsc } from "./timeline-sort";
 import { applyCommentDeletion, removeCommentSubtree } from "./comment-deletion";
 import { configStore } from "../config";
@@ -1195,6 +1197,28 @@ export function useCancelIssueRun(issueId: string) {
   return useMutation({
     mutationFn: (taskId: string) => api.cancelTask(issueId, taskId),
     onSuccess: () => client.invalidateQueries({ queryKey: issueKeys.tasks(issueId) }),
+  });
+}
+
+/**
+ * Send an instruction to the provider session that owns a running issue task.
+ * This stays in core so shared web/desktop surfaces do not bypass the
+ * mutation boundary with a direct API call. The server's task-message event
+ * updates the transcript; a failed mutation deliberately leaves the caller's
+ * draft intact so it can be retried.
+ */
+export function useSteerIssueRun() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ issueId, taskId, input }: { issueId: string; taskId: string; input: string }) =>
+      api.steerTask(issueId, taskId, input),
+    onSuccess: (response, { taskId }) => {
+      if (response.message) {
+        client.setQueryData<TaskMessagePayload[]>(chatKeys.taskMessages(taskId), (current) =>
+          unionTaskMessagesBySeq(current, [response.message!]),
+        );
+      }
+    },
   });
 }
 

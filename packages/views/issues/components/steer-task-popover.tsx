@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Loader2, MessageSquare, Send } from "lucide-react";
 import { toast } from "sonner";
-import { api } from "@multica/core/api";
+import { useSteerIssueRun } from "@multica/core/issues/mutations";
 import type { AgentTask } from "@multica/core/types";
 import { Button } from "@multica/ui/components/ui/button";
 import {
@@ -26,7 +26,7 @@ export function SteerTaskPopover({
   const { t } = useT("issues");
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
-  const [sending, setSending] = useState(false);
+  const steer = useSteerIssueRun();
 
   const handleOpenChange = (nextOpen: boolean) => {
     setOpen(nextOpen);
@@ -35,10 +35,9 @@ export function SteerTaskPopover({
 
   const handleSend = async () => {
     const value = input.trim();
-    if (!value || sending) return;
-    setSending(true);
+    if (!value || steer.isPending) return;
     try {
-      await api.steerTask(issueId, task.id, value);
+      await steer.mutateAsync({ issueId, taskId: task.id, input: value });
       setInput("");
       handleOpenChange(false);
       toast.success(t(($) => $.execution_log.steer_sent));
@@ -48,8 +47,6 @@ export function SteerTaskPopover({
           ? error.message
           : t(($) => $.execution_log.steer_failed),
       );
-    } finally {
-      setSending(false);
     }
   };
 
@@ -86,17 +83,17 @@ export function SteerTaskPopover({
           placeholder={t(($) => $.execution_log.steer_placeholder)}
           rows={3}
           className="min-h-20 resize-none text-body"
-          disabled={sending}
+          disabled={steer.isPending}
         />
         <div className="flex justify-end">
           <Button
             type="button"
             size="sm"
             variant="brandSubtle"
-            disabled={!input.trim() || sending}
+            disabled={!input.trim() || steer.isPending}
             onClick={() => void handleSend()}
           >
-            {sending ? <Loader2 aria-hidden="true" className="animate-spin" /> : <Send aria-hidden="true" />}
+            {steer.isPending ? <Loader2 aria-hidden="true" className="animate-spin" /> : <Send aria-hidden="true" />}
             {t(($) => $.execution_log.steer_send)}
           </Button>
         </div>

@@ -110,6 +110,22 @@ describe("InlineCommentRun", () => {
     expect(screen.getByPlaceholderText("Tell the agent what to do next...")).toBeEnabled();
   });
 
+  it("sends the draft through the issue-run mutation", async () => {
+    vi.mocked(api.listTaskMessages).mockResolvedValue([messages[0]!]);
+    vi.mocked(api.steerTask).mockResolvedValue({ status: "accepted" });
+    setup(task());
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add a message to the current run" }));
+    fireEvent.change(screen.getByPlaceholderText("Tell the agent what to do next..."), {
+      target: { value: "Focus on the failing test first." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add message" }));
+
+    await waitFor(() => {
+      expect(api.steerTask).toHaveBeenCalledWith("issue", id, "Focus on the failing test first.");
+    });
+  });
+
   it("waits for the first Turn message before exposing Steering", async () => {
     vi.mocked(api.listTaskMessages).mockResolvedValue([]);
     const { client } = setup(task());

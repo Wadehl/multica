@@ -2618,7 +2618,7 @@ export class ApiClient {
   async steerTask(issueId: string, taskId: string, input: string): Promise<SteerTaskResponse> {
     const raw = await this.fetch<unknown>(`/api/issues/${issueId}/tasks/${taskId}/steer`, {
       method: "POST",
-      body: JSON.stringify({ input }),
+      body: JSON.stringify({ input, client_user_message_id: createSafeId() }),
     });
     return parseWithFallback<SteerTaskResponse>(raw, SteerTaskResponseSchema, { status: "accepted" }, {
       endpoint: "POST /api/issues/:id/tasks/:taskId/steer",

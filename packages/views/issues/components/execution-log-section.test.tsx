@@ -15,6 +15,10 @@ vi.mock("@multica/core/chat/queries", () => ({
   useTaskMessages: mockState.useTaskMessages,
 }));
 
+vi.mock("@multica/core/issues/mutations", () => ({
+  useSteerIssueRun: () => ({ isPending: false, mutateAsync: vi.fn() }),
+}));
+
 vi.mock("../../common/actor-avatar", () => ({
   ActorAvatar: () => <span data-testid="actor-avatar" />,
 }));

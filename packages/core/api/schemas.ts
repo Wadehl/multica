@@ -1854,10 +1854,6 @@ export const AgentActivityBucketListSchema = z.array(z.object({
 
 export const AgentTaskListSchema = z.array(AgentTaskSchema);
 
-export const SteerTaskResponseSchema = z.object({
-  status: z.string().default("accepted"),
-}).loose();
-
 // One row of a run transcript. `output_truncated` gates a completeness claim
 // the UI makes about a tool's output, so it stays `.optional()` with no
 // default: a server that does not send it means "unknown", and defaulting it
@@ -1884,6 +1880,14 @@ export const TaskMessagePayloadSchema = z.object({
 }).loose();
 
 export const TaskMessageListSchema = z.array(TaskMessagePayloadSchema).default([]);
+
+export const SteerTaskResponseSchema = z.object({
+  status: z.string().default("accepted"),
+  // Newer servers echo the persisted user message so the sender can render it
+  // immediately. Older servers omit it; realtime task:message remains the
+  // compatibility path.
+  message: TaskMessagePayloadSchema.optional().catch(undefined),
+}).loose();
 
 // Task cancellation (`POST /api/tasks/:id/cancel`) is consumed directly by
 // chat recovery. Its optional message payload must be well-formed before the

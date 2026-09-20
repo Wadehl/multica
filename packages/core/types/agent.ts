@@ -1,5 +1,6 @@
 import type { ChatSession } from "./chat";
 import type { Label } from "./label";
+import type { TaskMessagePayload } from "./events";
 
 export type AgentStatus = "idle" | "working" | "blocked" | "error" | "offline";
 
@@ -446,6 +447,8 @@ export interface AgentTask {
 
 export interface SteerTaskResponse {
   status: "accepted" | (string & {});
+  /** The persisted Steering message, when returned by a newer backend. */
+  message?: TaskMessagePayload;
 }
 
 /**

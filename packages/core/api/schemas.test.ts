@@ -170,6 +170,20 @@ describe("ChatSessionSchema", () => {
 });
 
 describe("SteerTaskResponseSchema", () => {
+  it("keeps the echoed Steering transcript message", () => {
+    expect(SteerTaskResponseSchema.parse({
+      status: "accepted",
+      message: {
+        id: "message-1",
+        task_id: "task-1",
+        issue_id: "issue-1",
+        seq: 3,
+        type: "steering",
+        content: "Continue with the failing test.",
+      },
+    }).message?.type).toBe("steering");
+  });
+
   it("accepts an omitted status and falls back for malformed responses", () => {
     expect(SteerTaskResponseSchema.parse({}).status).toBe("accepted");
     expect(parseWithFallback(

@@ -5784,11 +5784,13 @@ func (h *Handler) ListTaskMessagesByUser(w http.ResponseWriter, r *http.Request)
 }
 
 type steerTaskRequest struct {
-	Input string `json:"input"`
+	Input               string `json:"input"`
+	ClientUserMessageID string `json:"client_user_message_id"`
 }
 
 type steerTaskResponse struct {
-	Status string `json:"status"`
+	Status  string                       `json:"status"`
+	Message *protocol.TaskMessagePayload `json:"message,omitempty"`
 }
 
 // SteerTask sends a live-turn instruction to the daemon that owns the issue
@@ -5807,6 +5809,21 @@ func (h *Handler) SteerTask(w http.ResponseWriter, r *http.Request) {
 	task, err := h.Queries.GetAgentTask(r.Context(), taskUUID)
 	if err != nil || !task.IssueID.Valid || task.IssueID != issue.ID {
 		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	if !task.AgentID.Valid {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	agent, err := h.Queries.GetAgent(r.Context(), task.AgentID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	workspaceID := uuidToString(issue.WorkspaceID)
+	actorType, actorID := h.resolveActor(r, requestUserID(r), workspaceID)
+	if !h.canInvokeAgent(r.Context(), agent, actorType, actorID, h.invokeOriginatorFromRequest(r, actorType, actorID), workspaceID) {
+		writeError(w, http.StatusForbidden, "you do not have access to this agent")
 		return
 	}
 	if task.Status != "running" {
@@ -5832,7 +5849,27 @@ func (h *Handler) SteerTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "input is too long")
 		return
 	}
-	if !h.DaemonHub.SendTaskSteer(uuidToString(task.RuntimeID), taskID, input, uuid.NewString()) {
+
+	// The client owns this id when available so a successful response and the
+	// realtime task:message event refer to the same transcript row. Older
+	// clients omit it, so keep the endpoint request-compatible by minting one.
+	messageID := pgtype.UUID{Valid: false}
+	if strings.TrimSpace(req.ClientUserMessageID) != "" {
+		messageID, ok = parseUUIDOrBadRequest(w, strings.TrimSpace(req.ClientUserMessageID), "client_user_message_id")
+		if !ok {
+			return
+		}
+	} else {
+		generated, err := uuid.NewV7()
+		if err != nil {
+			slog.Error("failed to generate Steering task message id", "task_id", taskID, "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to persist Steering message")
+			return
+		}
+		messageID = pgtype.UUID{Bytes: [16]byte(generated), Valid: true}
+	}
+
+	if !h.DaemonHub.SendTaskSteer(uuidToString(task.RuntimeID), taskID, input, uuidToString(messageID)) {
 		writeError(w, http.StatusConflict, "daemon session is unavailable")
 		return
 	}
@@ -5854,14 +5891,8 @@ func (h *Handler) SteerTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	messageID, err := uuid.NewV7()
-	if err != nil {
-		slog.Error("failed to generate Steering task message id", "task_id", taskID, "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to persist Steering message")
-		return
-	}
 	created, err := h.Queries.CreateTaskMessage(r.Context(), db.CreateTaskMessageParams{
-		ID:     pgtype.UUID{Bytes: [16]byte(messageID), Valid: true},
+		ID:     messageID,
 		TaskID: task.ID,
 		Seq:    nextSeq,
 		Type:   "steering",
@@ -5875,15 +5906,16 @@ func (h *Handler) SteerTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to persist Steering message")
 		return
 	}
+	payload := taskMessageToPayload(created, taskID, uuidToString(issue.ID))
 	h.publishTask(
 		protocol.EventTaskMessage,
 		uuidToString(issue.WorkspaceID),
 		"user",
 		requestUserID(r),
 		taskID,
-		taskMessageToPayload(created, taskID, uuidToString(issue.ID)),
+		payload,
 	)
-	writeJSON(w, http.StatusAccepted, steerTaskResponse{Status: "accepted"})
+	writeJSON(w, http.StatusAccepted, steerTaskResponse{Status: "accepted", Message: &payload})
 }
 
 // GetIssueUsage returns aggregated token usage for all tasks belonging to an issue.
