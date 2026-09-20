@@ -386,6 +386,13 @@ export function ActiveTaskRow({
           <span className={`${tone} min-w-0 truncate`}>{label}</span>
         )}
       </RowStatus>
+      {showSteering && task.status === "running" && (
+        <SteerTaskPopover
+          issueId={issueId}
+          task={task}
+          onOpenChange={setSteeringOpen}
+        />
+      )}
       <RowActions forceVisible={steeringOpen}>
         {showTranscript && (
           <TranscriptButton
@@ -394,13 +401,6 @@ export function ActiveTaskRow({
             isLive={task.status === "running"}
             title={t(($) => $.execution_log.transcript_tooltip)}
             onOpenChange={onTranscriptOpenChange}
-          />
-        )}
-        {showSteering && task.status === "running" && (
-          <SteerTaskPopover
-            issueId={issueId}
-            task={task}
-            onOpenChange={setSteeringOpen}
           />
         )}
         <Tooltip>

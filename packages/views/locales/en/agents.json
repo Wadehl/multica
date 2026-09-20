@@ -908,6 +908,7 @@
     "kind_tool": "Tool",
     "kind_thinking": "Thinking",
     "kind_error": "Error",
+    "kind_steering": "User message",
     "group_calls_one": "{{count}} call",
     "group_calls_other": "{{count}} calls",
     "step_running": "Still running",

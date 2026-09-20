@@ -6,6 +6,7 @@ import { useTraceIssueLabels } from "./use-trace-issue-labels";
 import { Virtuoso, type VirtuosoHandle, type Components } from "react-virtuoso";
 import {
   Bot,
+  MessageSquare,
   Brain,
   CircleAlert,
   CheckCircle2,
@@ -202,6 +203,7 @@ function stepHaystack(step: TraceStep): string {
 
 function StepIcon({ step, className }: { step: TraceStep; className?: string }) {
   if (!isCallStep(step)) {
+    if (step.kind === "steering") return <MessageSquare className={className} />;
     if (step.kind === "thinking") return <Brain className={className} />;
     if (step.kind === "error") return <CircleAlert className={className} />;
     return <Bot className={className} />;
@@ -485,7 +487,9 @@ export function AgentTranscriptDialog({
         label:
           step.kind === "call"
             ? step.tool || t(($) => $.transcript.kind_tool)
-            : traceEventLabel({ type: step.item.type, tool: step.item.tool }),
+            : step.kind === "steering"
+              ? t(($) => $.transcript.kind_steering)
+              : traceEventLabel({ type: step.item.type, tool: step.item.tool }),
         step,
       });
     }
@@ -1391,6 +1395,7 @@ function TranscriptRow(props: TranscriptRowProps) {
   const { row } = props;
   if (isGroupRow(row)) return <GroupRow {...props} row={row} />;
   if (!isCallStep(row) && row.kind === "text") return <ProseRow {...props} row={row} />;
+  if (!isCallStep(row) && row.kind === "steering") return <SteeringRow {...props} row={row} />;
   return <StepRow {...props} row={row} />;
 }
 
@@ -1483,6 +1488,27 @@ function ProseRow({ row, runStartMs }: TranscriptRowProps & { row: TraceMessageS
   );
 }
 
+/** A user-authored Steering message. Keep it separate from agent prose so it
+ * remains visible in a completed transcript and can be traced back to input. */
+function SteeringRow({ row, runStartMs }: TranscriptRowProps & { row: TraceMessageStep }) {
+  const { t } = useT("agents");
+  return (
+    <div className="group flex items-start gap-2 bg-brand/5 px-4 py-2.5">
+      <OffsetCell startedAt={row.startedAt} runStartMs={runStartMs} />
+      <span aria-hidden className="mt-1 w-0.5 self-stretch rounded-full bg-brand" />
+      <StepIcon step={row} className="mt-1 h-3 w-3 shrink-0 text-brand" />
+      <div className="min-w-0 flex-1 pr-2">
+        <p className="mb-1 text-caption font-medium text-brand">{t(($) => $.transcript.kind_steering)}</p>
+        <RichContent
+          content={row.item.content ?? ""}
+          density="compact"
+          className="transcript-prose max-w-[62rem]"
+        />
+      </div>
+    </div>
+  );
+}
+
 /** One call, one thinking block, or one error: a line, with its detail one
  *  click away in the inspector. */
 function StepRow({
@@ -1506,6 +1532,8 @@ function StepRow({
   const call = isCallStep(row) ? row : null;
   const label = call
     ? call.tool || t(($) => $.transcript.kind_tool)
+    : row.kind === "steering"
+      ? t(($) => $.transcript.kind_steering)
     : row.kind === "thinking"
       ? t(($) => $.transcript.kind_thinking)
       : t(($) => $.transcript.kind_error);
@@ -1710,6 +1738,8 @@ function StepInspector({
   const title =
     call
       ? call.tool || t(($) => $.transcript.kind_tool)
+      : step.kind === "steering"
+        ? t(($) => $.transcript.kind_steering)
       : step.kind === "thinking"
         ? t(($) => $.transcript.kind_thinking)
         : t(($) => $.transcript.kind_error);

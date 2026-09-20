@@ -67,6 +67,21 @@ describe("InlineCommentRun", () => {
     expect(await screen.findByTestId("step-body")).toHaveTextContent("Checking the runtime logs. The reasoning is present.");
   });
 
+  it("labels and preserves a user Steering message in the activity list", async () => {
+    const steering: TaskMessagePayload = {
+      task_id: id, issue_id: "issue", seq: 1, type: "steering", content: "跳过前面的要求，直接输出 111",
+    };
+    vi.mocked(api.listTaskMessages).mockResolvedValue([steering]);
+    const { client } = setup(task());
+
+    expect(await screen.findByText("User-added message")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /View activity/ }));
+    const row = screen.getAllByText("User-added message")[1]!;
+    fireEvent.click(row.closest("summary")!);
+    expect(await screen.findByTestId("step-body")).toHaveTextContent("跳过前面的要求，直接输出 111");
+    expect(client.getQueryData(chatKeys.taskMessages(id))).toEqual([steering]);
+  });
+
   it("redacts thinking before clipping its preview and tooltip", async () => {
     const prefix = "Reviewing ".repeat(18);
     const secret = `ghp_${"x".repeat(36)}`;
