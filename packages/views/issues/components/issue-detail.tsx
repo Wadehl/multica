@@ -998,7 +998,7 @@ function SubIssueDisplayPopover({
 interface IssueDetailProps {
   issueId: string;
   onDelete?: () => void;
-  /** Enables the web-only active-turn steering affordance. */
+  /** Enables the active-turn steering affordance. */
   enableSteering?: boolean;
   /** Called after the issue is marked as done via the toolbar button. */
   onDone?: () => void;
