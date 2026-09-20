@@ -105,6 +105,7 @@ export function InlineCommentRun({ run, className, viewState, showIdentity = fal
   const activitySummary = current && isCallStep(current)
     ? redactSecrets(traceToolArgSummary(current.call?.input, { formatText }) || current.tool)
     : current?.kind === "text" ? redactSecrets(formatText(current.item.content ?? ""))
+    : current?.kind === "steering" ? t(($) => $.inline_run.steering_message)
     : current?.kind === "thinking" ? thinkingPreview(current.item.content, formatText) || t(($) => $.inline_run.thinking)
     : current?.kind === "error" ? t(($) => $.inline_run.error)
     : t(($) => $.inline_run.waiting_response);
@@ -211,7 +212,8 @@ function InlineStep({ row, live, formatText }: { row: TraceRow; live: boolean; f
   const call = isCallStep(row);
   const pending = call && live && !row.result;
   const error = !grouped && !call && row.kind === "error";
-  const Icon = grouped || call ? Terminal : row.kind === "text" ? MessageSquare : row.kind === "thinking" ? Brain : AlertCircle;
+  const steering = !grouped && !call && row.kind === "steering";
+  const Icon = grouped || call ? Terminal : row.kind === "text" || steering ? MessageSquare : row.kind === "thinking" ? Brain : AlertCircle;
   const previewCall = grouped ? row.steps[0] : call ? row : undefined;
   const toolSummary = previewCall
     ? redactSecrets(traceToolArgSummary(previewCall.call?.input, { formatText }) || (previewCall.result ? traceEventSummary(previewCall.result, { formatText }) : ""))
@@ -220,13 +222,14 @@ function InlineStep({ row, live, formatText }: { row: TraceRow; live: boolean; f
     ? toolSummary || row.tool
     : grouped ? toolSummary ? `${row.tool} · ${toolSummary}` : row.tool
     : row.kind === "text" ? traceEventSummary({ ...row.item, content: redactSecrets(formatText(row.item.content ?? "")) }) || t(($) => $.inline_run.message)
+    : steering ? t(($) => $.inline_run.steering_message)
     : row.kind === "thinking" ? thinkingPreview(row.item.content, formatText) || t(($) => $.inline_run.thinking)
     : t(($) => $.inline_run.error);
-  return <details className="min-w-0 text-caption" onToggle={onToggle}>
+  return <details className={cn("min-w-0 text-caption", steering && "rounded-xs bg-brand/5")} onToggle={onToggle}>
     <summary onClick={disclosure.onTrigger} className="flex cursor-pointer list-none items-center gap-2 rounded-xs py-1.5 hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
       {pending ? <Loader2 aria-hidden className="size-3.5 shrink-0 animate-spin text-info motion-reduce:animate-none" />
-        : <Icon aria-hidden className={cn("size-3.5 shrink-0", error ? "text-destructive" : "text-muted-foreground")} />}
-      <span className={cn("min-w-0 flex-1 truncate", error && "text-destructive")} title={summary}>{summary}</span>
+        : <Icon aria-hidden className={cn("size-3.5 shrink-0", error ? "text-destructive" : steering ? "text-brand" : "text-muted-foreground")} />}
+      <span className={cn("min-w-0 flex-1 truncate", error && "text-destructive", steering && "font-medium text-brand")} title={summary}>{summary}</span>
       {(grouped || call) && <span className="shrink-0 text-micro text-muted-foreground">
         {grouped ? t(($) => $.inline_run.steps, { count: row.steps.length }) : row.tool}
       </span>}

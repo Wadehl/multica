@@ -21,6 +21,7 @@ import {
   ChevronRight,
   ChevronDown,
   Brain,
+  MessageSquare,
   AlertCircle,
   AlertTriangle,
   ArrowUpRight,
@@ -1237,6 +1238,8 @@ function ItemRow({ item }: { item: ChatTimelineItem }) {
       return <ToolResultRow item={item} />;
     case "thinking":
       return <ThinkingRow item={item} />;
+    case "steering":
+      return <SteeringRow item={item} />;
     case "error":
       return <ErrorRow item={item} />;
     default:
@@ -1351,6 +1354,19 @@ function ThinkingRow({ item }: { item: ChatTimelineItem }) {
         </pre>
       </CollapsibleContent>
     </Collapsible>
+  );
+}
+
+function SteeringRow({ item }: { item: ChatTimelineItem }) {
+  const { t } = useT("agents");
+  return (
+    <div className="flex items-start gap-1.5 rounded-xs bg-brand/5 px-1 py-1 text-caption">
+      <MessageSquare className="mt-0.5 h-3 w-3 shrink-0 text-brand" />
+      <div className="min-w-0 flex-1">
+        <p className="font-medium text-brand">{t(($) => $.transcript.kind_steering)}</p>
+        <RichContent content={item.content ?? ""} density="compact" />
+      </div>
+    </div>
   );
 }
 

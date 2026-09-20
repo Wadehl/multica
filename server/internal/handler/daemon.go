@@ -5863,7 +5863,7 @@ func (h *Handler) SteerTask(w http.ResponseWriter, r *http.Request) {
 		ID:     pgtype.UUID{Bytes: [16]byte(messageID), Valid: true},
 		TaskID: task.ID,
 		Seq:    nextSeq,
-		Type:   "text",
+		Type:   "steering",
 		Content: pgtype.Text{
 			String: util.SanitizeTextForPostgres(redact.Text(input)),
 			Valid:  true,

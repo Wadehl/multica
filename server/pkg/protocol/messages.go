@@ -206,14 +206,14 @@ type ChatQuickActionsPayload struct {
 	Failed bool `json:"failed,omitempty"`
 }
 
-// TaskMessagePayload represents a single agent execution message (tool call, text, etc.)
+// TaskMessagePayload represents a single execution transcript message (tool call, agent text, user Steering, etc.).
 type TaskMessagePayload struct {
 	// CallID is an opaque tool-call identity scoped to one backend execution.
 	CallID  string         `json:"call_id,omitempty"`
 	TaskID  string         `json:"task_id"`
 	IssueID string         `json:"issue_id,omitempty"`
 	Seq     int            `json:"seq"`
-	Type    string         `json:"type"`              // "text", "tool_use", "tool_result", "error"
+	Type    string         `json:"type"`              // "text", "steering", "tool_use", "tool_result", "error"
 	Tool    string         `json:"tool,omitempty"`    // tool name for tool_use/tool_result
 	Content string         `json:"content,omitempty"` // text content
 	Input   map[string]any `json:"input,omitempty"`   // tool input (tool_use only)
