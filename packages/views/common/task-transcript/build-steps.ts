@@ -21,6 +21,7 @@ import type { TimelineItem } from "./build-timeline";
  *  whose call was never recorded. */
 export interface TraceCallStep {
   kind: "call";
+  id?: string;
   /** Ordering key: the call's seq, or the result's when the call is missing. */
   seq: number;
   tool: string;
@@ -36,6 +37,7 @@ export interface TraceCallStep {
 /** Agent prose, user Steering, model thinking, or an error: one message, nothing to pair. */
 export interface TraceMessageStep {
   kind: "text" | "steering" | "thinking" | "error";
+  id?: string;
   seq: number;
   item: TimelineItem;
   startedAt?: string;
@@ -46,6 +48,7 @@ export type TraceStep = TraceCallStep | TraceMessageStep;
 /** Consecutive same-tool calls, folded. Expands back to its members. */
 export interface TraceGroupRow {
   kind: "group";
+  id?: string;
   seq: number;
   tool: string;
   steps: TraceCallStep[];
@@ -105,6 +108,7 @@ export function buildSteps(items: TimelineItem[]): TraceStep[] {
       const tool = item.tool ?? "";
       const step: TraceCallStep = {
         kind: "call",
+        id: item.id,
         seq: item.seq,
         tool,
         call: item,
@@ -129,6 +133,7 @@ export function buildSteps(items: TimelineItem[]): TraceStep[] {
       // Orphan result: keep it as a step of its own so no output is dropped.
       steps.push({
         kind: "call",
+        id: item.id,
         seq: item.seq,
         tool,
         result: item,
@@ -140,6 +145,7 @@ export function buildSteps(items: TimelineItem[]): TraceStep[] {
 
     steps.push({
       kind: item.type,
+      id: item.id,
       seq: item.seq,
       item,
       startedAt: item.created_at,
@@ -163,6 +169,7 @@ export function groupSteps(steps: TraceStep[]): TraceRow[] {
       const last = run[run.length - 1]!;
       rows.push({
         kind: "group",
+        id: first.id,
         seq: first.seq,
         tool: first.tool,
         steps: run,

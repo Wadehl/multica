@@ -5028,6 +5028,7 @@ func taskMessageToPayload(m db.TaskMessage, taskID, issueID string) protocol.Tas
 		createdAt = m.CreatedAt.Time.UTC().Format(time.RFC3339Nano)
 	}
 	return protocol.TaskMessagePayload{
+		ID:              uuidToString(m.ID),
 		TaskID:          taskID,
 		IssueID:         issueID,
 		Seq:             int(m.Seq),

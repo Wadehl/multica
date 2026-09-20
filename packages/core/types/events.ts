@@ -285,6 +285,8 @@ export interface ActivityCreatedPayload {
 }
 
 export interface TaskMessagePayload {
+  /** Stable database identity; seq is only an ordering key and may repeat. */
+  id?: string;
   task_id: string;
   issue_id: string;
   chat_session_id?: string;

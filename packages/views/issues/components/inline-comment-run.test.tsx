@@ -10,7 +10,7 @@ import { renderWithI18n } from "../../test/i18n";
 import { InlineCommentRun } from "./inline-comment-run";
 
 vi.mock("@multica/core/api", () => ({ api: {
-  getIssue: vi.fn(), listTaskMessages: vi.fn(), cancelTask: vi.fn(), rerunIssue: vi.fn(),
+  getIssue: vi.fn(), listTaskMessages: vi.fn(), cancelTask: vi.fn(), rerunIssue: vi.fn(), steerTask: vi.fn(),
 }, dispatchReasonCode: () => undefined }));
 vi.mock("@multica/core/hooks", () => ({ useWorkspaceId: () => "workspace" }));
 vi.mock("@multica/core/workspace/hooks", () => ({ useActorName: () => ({ getActorName: () => "Reviewer" }) }));
@@ -43,6 +43,16 @@ function setup(initialTask: AgentTask, hasReply = false, presentation: "inline" 
 }
 
 describe("InlineCommentRun", () => {
+  it("exposes Steering beside the active run controls", async () => {
+    vi.mocked(api.listTaskMessages).mockResolvedValue([]);
+    setup(task());
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add a message to the current run" }));
+
+    expect(screen.getByText("Add a Steering message")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Tell the agent what to do next...")).toBeEnabled();
+  });
+
   it("previews streamed thinking in the header and collapsed steps, and expands its body", async () => {
     const thought: TaskMessagePayload = {
       task_id: id, issue_id: "issue", seq: 1, type: "thinking", content: "Checking the runtime",

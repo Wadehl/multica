@@ -52,6 +52,13 @@ describe("unionTaskMessagesBySeq", () => {
     expect(united).toEqual([persisted]);
   });
 
+  it("keeps distinct rows when their ordering keys repeat", () => {
+    const agent = { ...msg(1), id: "agent-row" };
+    const steering = { ...msg(1), id: "steering-row", type: "steering" as const, content: "Do this next" };
+
+    expect(unionTaskMessagesBySeq([agent], [agent, steering])).toEqual([agent, steering]);
+  });
+
   it("preserves the base reference when nothing differs", () => {
     // Identity is what keeps a duplicate event from re-rendering every
     // subscriber — AssistantMessage memoizes its timeline on this array.
@@ -90,6 +97,13 @@ describe("mergeTaskMessagesBySeq", () => {
 
     expect(merged.map((m) => m.seq)).toEqual([1, 2]);
     expect(merged.find((m) => m.seq === 1)?.content).toBe("ws");
+  });
+
+  it("does not let a same-seq agent frame hide a Steering frame", () => {
+    const existing = [msg(1)];
+    const steering = { ...msg(1), type: "steering" as const, content: "Do this next" };
+
+    expect(mergeTaskMessagesBySeq(existing, [steering])).toEqual([steering]);
   });
 
   it("preserves the array reference when nothing new arrives", () => {

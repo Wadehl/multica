@@ -205,7 +205,7 @@ export function taskMessagesOptions(taskId: string) {
     // Every write to this cache — this fetch, a backfill, or a realtime batch —
     // folds into what is already there instead of replacing it. Without this a
     // response that resolves after a live frame was written would drop that
-    // seq, and staleTime:Infinity means nothing would ever fetch it again.
+    // ordering key, and staleTime:Infinity means nothing would ever fetch it again.
     structuralSharing: (prev, next) =>
       unionTaskMessagesBySeq(
         prev as TaskMessagePayload[] | undefined,
@@ -235,7 +235,7 @@ export function useTaskMessages(taskId: string, isLive: boolean, enabled = true)
 }
 
 /**
- * Merge task-message batches into one seq-ordered, seq-deduplicated list for
+ * Merge task-message batches into one seq-ordered list for
  * the shared `["task-messages", taskId]` cache. Existing entries win on
  * conflict, and the original array reference is preserved when nothing new
  * arrives so React Query observers don't re-render on duplicate events.
@@ -251,14 +251,48 @@ export function mergeTaskMessagesBySeq(
   incoming: readonly TaskMessagePayload[],
 ): TaskMessagePayload[] {
   if (incoming.length === 0) return existing as TaskMessagePayload[];
-  const knownSeqs = new Set(existing.map((m) => m.seq));
-  const fresh = incoming.filter((m) => !knownSeqs.has(m.seq));
-  if (fresh.length === 0) return existing as TaskMessagePayload[];
-  return [...existing, ...fresh].sort((a, b) => a.seq - b.seq);
+  const merged = [...existing];
+  let changed = false;
+
+  for (const message of incoming) {
+    const index = findTaskMessageIndex(merged, message);
+    if (index === -1) {
+      merged.push(message);
+      changed = true;
+      continue;
+    }
+
+    // A Steering row is user-authored and can race a daemon row that received
+    // the same ordering key. Keep it visible even when the live frame arrives
+    // after a provisional text frame.
+    if (message.type === "steering" && merged[index]?.type !== "steering") {
+      merged[index] = message;
+      changed = true;
+    }
+  }
+
+  return changed ? merged.sort((a, b) => a.seq - b.seq) : existing as TaskMessagePayload[];
+}
+
+function findTaskMessageIndex(
+  messages: readonly TaskMessagePayload[],
+  target: TaskMessagePayload,
+): number {
+  if (target.id) {
+    const byId = messages.findIndex((message) => message.id === target.id);
+    if (byId !== -1) return byId;
+    // A cache entry created by an older server may not have the new identity.
+    // Reconcile that one row when the first identified frame arrives.
+    const legacyBySeq = messages.findIndex((message) => !message.id && message.seq === target.seq);
+    if (legacyBySeq !== -1) return legacyBySeq;
+    return -1;
+  }
+  return messages.findIndex((message) => message.seq === target.seq);
 }
 
 /**
- * Union two task-message lists by seq, with `authoritative` winning on conflict.
+ * Union two task-message lists by stable message ID, with `authoritative`
+ * winning on conflict. Legacy payloads without an ID fall back to seq.
  *
  * This is the rule every write to the `["task-messages", taskId]` cache goes
  * through, wired in as `structuralSharing` on the query itself so a fetch
@@ -285,16 +319,20 @@ export function unionTaskMessagesBySeq(
     return [...authoritative].sort((a, b) => a.seq - b.seq);
   }
 
-  const bySeq = new Map(base.map((m) => [m.seq, m]));
+  const merged = [...base];
   let changed = false;
   for (const msg of authoritative) {
-    if (bySeq.get(msg.seq) !== msg) {
-      bySeq.set(msg.seq, msg);
+    const index = findTaskMessageIndex(merged, msg);
+    if (index === -1) {
+      merged.push(msg);
+      changed = true;
+    } else if (merged[index] !== msg) {
+      merged[index] = msg;
       changed = true;
     }
   }
   if (!changed) return base as TaskMessagePayload[];
-  return [...bySeq.values()].sort((a, b) => a.seq - b.seq);
+  return merged.sort((a, b) => a.seq - b.seq);
 }
 
 /**
