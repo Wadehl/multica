@@ -1493,7 +1493,7 @@ function ProseRow({ row, runStartMs }: TranscriptRowProps & { row: TraceMessageS
 function SteeringRow({ row, runStartMs }: TranscriptRowProps & { row: TraceMessageStep }) {
   const { t } = useT("agents");
   return (
-    <div className="group flex items-start gap-2 bg-brand/5 px-4 py-2.5">
+    <div className="group flex items-start gap-2 px-4 py-2.5">
       <OffsetCell startedAt={row.startedAt} runStartMs={runStartMs} />
       <span aria-hidden className="mt-1 w-0.5 self-stretch rounded-full bg-brand" />
       <StepIcon step={row} className="mt-1 h-3 w-3 shrink-0 text-brand" />
