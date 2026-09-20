@@ -99,6 +99,7 @@ describe("InlineCommentRun", () => {
     expect(screen.getByText("Checking [REDACTED GITHUB TOKEN]")).toHaveAttribute("title", "Checking [REDACTED GITHUB TOKEN]");
     expect(screen.getByText("Agent message").closest("summary")).not.toBeNull();
     expect(document.body.innerHTML).not.toContain(secret);
+  });
 
   it("exposes Steering beside the active run controls", async () => {
     vi.mocked(api.listTaskMessages).mockResolvedValue([messages[0]!]);

@@ -3,11 +3,12 @@
 import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentTask } from "@multica/core/types";
+import type { TaskMessagePayload } from "@multica/core/types/events";
 import { renderWithI18n } from "../../test/i18n";
 
 const mockState = vi.hoisted(() => ({
   taskMessagesOptions: vi.fn(),
-  useTaskMessages: vi.fn(() => ({ data: [] })),
+  useTaskMessages: vi.fn(() => ({ data: [] as TaskMessagePayload[] })),
 }));
 
 vi.mock("@multica/core/chat/queries", () => ({
@@ -96,7 +97,9 @@ describe("ActiveTaskRow", () => {
     expect(mockState.taskMessagesOptions).not.toHaveBeenCalled();
   });
   it("uses the native web steering popover beside the running controls", () => {
-    mockState.useTaskMessages.mockReturnValue({ data: [{ seq: 1 }] });
+    mockState.useTaskMessages.mockReturnValue({
+      data: [{ task_id: "task-1", issue_id: "issue-1", seq: 1, type: "text", content: "Ready" }],
+    });
     renderWithI18n(
       <ActiveTaskRow task={makeTask()} issueId="issue-1" showSteering />,
     );

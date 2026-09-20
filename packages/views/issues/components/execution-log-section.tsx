@@ -9,7 +9,6 @@ import { issueTasksOptions } from "@multica/core/issues/queries";
 import { useTaskMessages } from "@multica/core/chat/queries";
 import { useCustomPricingStore } from "@multica/core/runtimes/custom-pricing-store";
 import type { AgentTask } from "@multica/core/types";
-import { Button } from "@multica/ui/components/ui/button";
 import { useTimeAgo } from "../../i18n";
 import {
   Tooltip,
@@ -309,10 +308,12 @@ const STATUS_TONE: Record<AgentTask["status"], string> = {
 export function ActiveTaskRow({
   task,
   issueId,
+  showSteering = false,
   onTranscriptOpenChange,
 }: {
   task: AgentTask;
   issueId: string;
+  showSteering?: boolean;
   onTranscriptOpenChange?: (open: boolean, fromKeyboard?: boolean) => void;
 }) {
   const { t } = useT("issues");
