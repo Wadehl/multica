@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -19,20 +20,31 @@ const (
 	grokBillingBaseEnv       = "GROK_CLI_CHAT_PROXY_BASE_URL"
 	grokBillingBaseURL       = "https://cli-chat-proxy.grok.com/v1"
 	grokBillingTimeout       = 10 * time.Second
+	grokOIDCTokenEndpointEnv = "GROK_OIDC_TOKEN_ENDPOINT"
+	grokOIDCTokenEndpoint    = grokAuthIssuer + "/oauth2/token"
 	grokWeeklyWindowMinutes  = 7 * 24 * 60
 	grokMonthlyWindowMinutes = 30 * 24 * 60
 	grokAuthIssuer           = "https://auth.x.ai"
 )
 
 type grokAuthEntry struct {
-	Key       string `json:"key"`
-	UserID    string `json:"user_id"`
-	ExpiresAt string `json:"expires_at"`
+	Key          string `json:"key"`
+	UserID       string `json:"user_id"`
+	ExpiresAt    string `json:"expires_at"`
+	RefreshToken string `json:"refresh_token"`
+	OIDCIssuer   string `json:"oidc_issuer"`
+	OIDCClientID string `json:"oidc_client_id"`
 }
 
 type grokAuthSession struct {
-	AccessToken string
-	UserID      string
+	AccessToken  string
+	UserID       string
+	RefreshToken string
+	OIDCIssuer   string
+	OIDCClientID string
+	ExpiresAt    string
+	AuthPath     string
+	IssuerKey    string
 }
 
 type grokUsagePeriod struct {
@@ -73,6 +85,12 @@ func FetchGrokPlanLimits(ctx context.Context, env map[string]string) (*protocol.
 	}
 
 	credits, err := fetchGrokBilling(ctx, env, session, true)
+	if isGrokAuthFailure(err) && session.RefreshToken != "" {
+		if refreshErr := refreshGrokAuthSession(ctx, env, session); refreshErr != nil {
+			return nil, fmt.Errorf("refresh Grok auth: %w", refreshErr)
+		}
+		credits, err = fetchGrokBilling(ctx, env, session, true)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -126,28 +144,150 @@ func readGrokAuthSession(env map[string]string) (*grokAuthSession, error) {
 		return nil, fmt.Errorf("decode Grok auth: %w", err)
 	}
 
-	preferredSeen := false
-	var preferred *grokAuthSession
-	var fallback *grokAuthSession
 	for issuer, entry := range entries {
-		if strings.HasPrefix(issuer, grokAuthIssuer) {
-			preferredSeen = true
-			if entry.Key != "" && preferred == nil {
-				preferred = &grokAuthSession{AccessToken: entry.Key, UserID: entry.UserID}
-			}
+		// Grok CLI scopes the issuer key with an account/tenant suffix, e.g.
+		// https://auth.x.ai::<uuid>. Accept that format, but never accept a
+		// look-alike host such as https://auth.x.ai.evil.
+		if issuer != grokAuthIssuer && !strings.HasPrefix(issuer, grokAuthIssuer+"::") {
 			continue
 		}
-		if fallback == nil && entry.Key != "" {
-			fallback = &grokAuthSession{AccessToken: entry.Key, UserID: entry.UserID}
+		if entry.Key == "" {
+			continue
 		}
-	}
-	if preferred != nil {
-		return preferred, nil
-	}
-	if !preferredSeen && fallback != nil {
-		return fallback, nil
+		return &grokAuthSession{
+			AccessToken:  entry.Key,
+			UserID:       entry.UserID,
+			RefreshToken: entry.RefreshToken,
+			OIDCIssuer:   firstNonEmpty(entry.OIDCIssuer, grokAuthIssuer),
+			OIDCClientID: entry.OIDCClientID,
+			ExpiresAt:    entry.ExpiresAt,
+			AuthPath:     filepath.Join(home, "auth.json"),
+			IssuerKey:    issuer,
+		}, nil
 	}
 	return nil, fmt.Errorf("Grok auth session is unavailable")
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func isGrokAuthFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := err.Error()
+	return strings.Contains(message, "HTTP 401") || strings.Contains(message, "HTTP 403")
+}
+
+func refreshGrokAuthSession(ctx context.Context, env map[string]string, session *grokAuthSession) error {
+	if session.RefreshToken == "" {
+		return fmt.Errorf("refresh token is unavailable; run `grok login` once on this machine")
+	}
+	endpoint := grokEnvValue(env, grokOIDCTokenEndpointEnv)
+	if endpoint == "" {
+		endpoint = grokOIDCTokenEndpoint
+	}
+	form := url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {session.RefreshToken},
+	}
+	if session.OIDCClientID != "" {
+		form.Set("client_id", session.OIDCClientID)
+	}
+	requestCtx, cancel := context.WithTimeout(ctx, grokBillingTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return fmt.Errorf("create token refresh request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("request token refresh: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("token refresh failed (HTTP %d)", response.StatusCode)
+	}
+	var refreshed struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresIn    int64  `json:"expires_in"`
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&refreshed); err != nil {
+		return fmt.Errorf("decode token refresh response: %w", err)
+	}
+	if refreshed.AccessToken == "" {
+		return fmt.Errorf("token refresh response did not include an access token")
+	}
+	if refreshed.RefreshToken == "" {
+		refreshed.RefreshToken = session.RefreshToken
+	}
+	expiresAt := ""
+	if refreshed.ExpiresIn > 0 {
+		expiresAt = time.Now().Add(time.Duration(refreshed.ExpiresIn) * time.Second).UTC().Format(time.RFC3339Nano)
+	}
+	if session.AuthPath != "" && session.IssuerKey != "" {
+		if err := persistGrokAuthSession(session, refreshed.AccessToken, refreshed.RefreshToken, expiresAt); err != nil {
+			return fmt.Errorf("persist refreshed auth: %w", err)
+		}
+	}
+	session.AccessToken = refreshed.AccessToken
+	session.RefreshToken = refreshed.RefreshToken
+	session.ExpiresAt = expiresAt
+	return nil
+}
+
+func persistGrokAuthSession(session *grokAuthSession, accessToken, refreshToken, expiresAt string) error {
+	data, err := os.ReadFile(session.AuthPath)
+	if err != nil {
+		return err
+	}
+	var entries map[string]map[string]json.RawMessage
+	if err := json.Unmarshal(data, &entries); err != nil {
+		return err
+	}
+	entry, ok := entries[session.IssuerKey]
+	if !ok {
+		return fmt.Errorf("issuer entry disappeared")
+	}
+	set := func(key, value string) {
+		encoded, _ := json.Marshal(value)
+		entry[key] = encoded
+	}
+	set("key", accessToken)
+	set("refresh_token", refreshToken)
+	if expiresAt != "" {
+		set("expires_at", expiresAt)
+	}
+	encoded, err := json.MarshalIndent(entries, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(session.AuthPath), ".auth.json-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(encoded); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, session.AuthPath)
 }
 
 func fetchGrokBilling(ctx context.Context, env map[string]string, session *grokAuthSession, credits bool) (*grokBillingResponse, error) {
