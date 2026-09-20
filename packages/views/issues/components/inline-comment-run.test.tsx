@@ -101,13 +101,26 @@ describe("InlineCommentRun", () => {
     expect(document.body.innerHTML).not.toContain(secret);
 
   it("exposes Steering beside the active run controls", async () => {
-    vi.mocked(api.listTaskMessages).mockResolvedValue([]);
+    vi.mocked(api.listTaskMessages).mockResolvedValue([messages[0]!]);
     setup(task());
 
     fireEvent.click(await screen.findByRole("button", { name: "Add a message to the current run" }));
 
     expect(screen.getByText("Add a Steering message")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Tell the agent what to do next...")).toBeEnabled();
+  });
+
+  it("waits for the first Turn message before exposing Steering", async () => {
+    vi.mocked(api.listTaskMessages).mockResolvedValue([]);
+    const { client } = setup(task());
+
+    await waitFor(() => expect(api.listTaskMessages).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: "Add a message to the current run" })).not.toBeInTheDocument();
+
+    act(() => {
+      client.setQueryData(chatKeys.taskMessages(id), [messages[0]!]);
+    });
+    expect(await screen.findByRole("button", { name: "Add a message to the current run" })).toBeInTheDocument();
   });
 
   it("previews streamed thinking in the header and collapsed steps, and expands its body", async () => {

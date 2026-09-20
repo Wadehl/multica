@@ -7,10 +7,12 @@ import { renderWithI18n } from "../../test/i18n";
 
 const mockState = vi.hoisted(() => ({
   taskMessagesOptions: vi.fn(),
+  useTaskMessages: vi.fn(() => ({ data: [] })),
 }));
 
 vi.mock("@multica/core/chat/queries", () => ({
   taskMessagesOptions: mockState.taskMessagesOptions,
+  useTaskMessages: mockState.useTaskMessages,
 }));
 
 vi.mock("../../common/actor-avatar", () => ({
@@ -61,6 +63,7 @@ function makeTask(overrides: Partial<AgentTask> = {}): AgentTask {
 beforeEach(() => {
   cleanup();
   vi.clearAllMocks();
+  mockState.useTaskMessages.mockReturnValue({ data: [] });
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-06-08T08:05:04Z"));
 });
@@ -89,6 +92,7 @@ describe("ActiveTaskRow", () => {
     expect(mockState.taskMessagesOptions).not.toHaveBeenCalled();
   });
   it("uses the native web steering popover beside the running controls", () => {
+    mockState.useTaskMessages.mockReturnValue({ data: [{ seq: 1 }] });
     renderWithI18n(
       <ActiveTaskRow task={makeTask()} issueId="issue-1" showSteering />,
     );
@@ -98,6 +102,14 @@ describe("ActiveTaskRow", () => {
     expect(screen.getByText("Add a Steering message")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Tell the agent what to do next...")).toBeEnabled();
     expect(screen.getByRole("button", { name: "Add message" })).toBeDisabled();
+  });
+
+  it("hides Steering until the provider has emitted a Turn message", () => {
+    renderWithI18n(
+      <ActiveTaskRow task={makeTask()} issueId="issue-1" showSteering />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Add a message to the current run" })).not.toBeInTheDocument();
   });
 });
 
