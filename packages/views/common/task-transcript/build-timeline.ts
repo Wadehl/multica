@@ -3,6 +3,7 @@ import { redactSecrets } from "./redact";
 
 /** A unified timeline entry: tools, agent output, user Steering, and errors in chronological order. */
 export interface TimelineItem {
+  id?: string;
   seq: number;
   type: "tool_use" | "tool_result" | "thinking" | "text" | "steering" | "error";
   tool?: string;
@@ -111,6 +112,7 @@ function mergeRun(run: readonly TaskMessagePayload[]): TimelineItem {
     createdAt = message.created_at ?? createdAt;
   }
   return {
+    id: first.id,
     seq: first.seq,
     type: first.type,
     tool: first.tool,

@@ -210,6 +210,7 @@ type ChatQuickActionsPayload struct {
 type TaskMessagePayload struct {
 	// CallID is an opaque tool-call identity scoped to one backend execution.
 	CallID  string         `json:"call_id,omitempty"`
+	ID      string         `json:"id,omitempty"` // stable database identity; seq is only an ordering key
 	TaskID  string         `json:"task_id"`
 	IssueID string         `json:"issue_id,omitempty"`
 	Seq     int            `json:"seq"`

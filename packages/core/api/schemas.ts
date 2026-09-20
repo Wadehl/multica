@@ -1869,6 +1869,7 @@ export const SteerTaskResponseSchema = z.object({
 // field keeps a default for the same reason.
 export const TaskMessagePayloadSchema = z.object({
   call_id: z.string().optional().catch(undefined),
+  id: z.string().optional().catch(undefined),
   task_id: z.string().default(""),
   issue_id: z.string().default(""),
   chat_session_id: z.string().optional(),

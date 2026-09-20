@@ -24,6 +24,7 @@ import { useT } from "../../i18n";
 import { formatDuration } from "../../agents/components/agent-activity-hover-content";
 import { cancellationActorLabel, cancelReasonLabel, failureReasonLabel } from "../../agents/components/tabs/task-failure";
 import { TerminateTaskConfirmDialog } from "./terminate-task-confirm-dialog";
+import { SteerTaskPopover } from "./steer-task-popover";
 import { TaskStatusIcon } from "./task-status-icon";
 import { useStatusLabel } from "./task-run-labels";
 import { commentRunOutput, isActiveCommentRun, showCommentRunInHeader, type CommentRun } from "./comment-runs";
@@ -81,6 +82,13 @@ export function InlineCommentRun({ run, className, viewState, showIdentity = fal
   // Historical, collapsed runs still don't fetch transcripts.
   const loadTranscript = task.status === "running" || (presentation === "inline" && expanded) || fullLogOpen;
   const { data, isPending, isError, refetch } = useTaskMessages(task.id, active, loadTranscript);
+  useEffect(() => {
+    if (!fullLogOpen || !active) return;
+    // The live cache can be one WS frame behind when the task transitions to
+    // completed. Fetch at the moment the reader asks for the full transcript,
+    // so the dialog does not require a page refresh to show persisted Steering.
+    void refetch({ cancelRefetch: false });
+  }, [active, fullLogOpen, refetch, task.id]);
   const items = useMemo(() => buildTimeline(data ?? []), [data]);
   const formatText = useTraceIssueLabels(useWorkspaceId(), task.issue_id, items, loadTranscript);
   const steps = useMemo(() => buildSteps(items), [items]);
@@ -172,6 +180,7 @@ export function InlineCommentRun({ run, className, viewState, showIdentity = fal
           <ChevronRight ref={state.disclosure.chevronRef} aria-hidden className={cn("size-3.5 shrink-0", expanded && "rotate-90")} />
         </button>
         <span className={cn("shrink-0 whitespace-nowrap text-caption tabular-nums text-muted-foreground", showIdentity && !active && "@max-[32rem]/run:hidden")}>{elapsed}</span>
+        {task.status === "running" && <SteerTaskPopover issueId={task.issue_id} task={task} />}
         {stopButton}
         {!hasReply && (task.status === "failed" || task.status === "cancelled") && <Button
           size="sm" variant="ghost" className={cn("text-muted-foreground", showIdentity && "@max-[32rem]/run:size-7 @max-[32rem]/run:p-0")} disabled={retry.isPending || retry.isSuccess}
@@ -191,7 +200,7 @@ export function InlineCommentRun({ run, className, viewState, showIdentity = fal
           {!isPending && !isError && rows.length === 0 && <p className="text-caption text-muted-foreground">{t(($) => $.inline_run.empty)}</p>}
           {rows.length > visibleCount && <button type="button" className="py-1 text-caption text-muted-foreground hover:text-foreground"
             onClick={() => setVisibleCount((count) => count + 12)}>{t(($) => $.inline_run.show_earlier, { count: rows.length - visibleCount })}</button>}
-          {rows.slice(-visibleCount).map((row) => <InlineStep key={row.seq} row={row} live={active} formatText={formatText} />)}
+          {rows.slice(-visibleCount).map((row) => <InlineStep key={row.id ?? `${row.kind}:${row.seq}`} row={row} live={active} formatText={formatText} />)}
           <button type="button" className="flex items-center gap-1.5 rounded-xs py-2 text-caption text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onClick={openFullLog}>{t(($) => $.inline_run.full_log)}<ExternalLink className="size-3" /></button>
         </div>}
@@ -239,7 +248,7 @@ function InlineStep({ row, live, formatText }: { row: TraceRow; live: boolean; f
       {grouped ? <>
         {row.steps.length > limit && <button type="button" className="py-1 text-muted-foreground" onClick={() => setLimit((value) => value + 12)}>
           {t(($) => $.inline_run.show_earlier, { count: row.steps.length - limit })}</button>}
-        {row.steps.slice(-limit).map((step) => <InlineStep key={step.seq} row={step} live={live} formatText={formatText} />)}
+        {row.steps.slice(-limit).map((step) => <InlineStep key={step.id ?? `${step.kind}:${step.seq}`} row={step} live={live} formatText={formatText} />)}
       </> : call ? <>
         {row.call && <StepBody item={row.call} />}
         {row.result && <StepBody item={row.result} />}
