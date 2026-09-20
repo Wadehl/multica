@@ -75,7 +75,7 @@ const PAST_STATUS_RANK: Record<string, number> = {
   completed: 2,
 };
 
-export function ExecutionLogSection({ issueId, identifier }: ExecutionLogSectionProps) {
+export function ExecutionLogSection({ issueId, identifier, showSteering = false }: ExecutionLogSectionProps) {
   const { t } = useT("issues");
   const [open, setOpen] = useState(true);
   const [showPast, setShowPast] = useState(false);
@@ -171,7 +171,7 @@ export function ExecutionLogSection({ issueId, identifier }: ExecutionLogSection
       {open && (
         <div className="space-y-0.5 pl-2">
           {activeTasks.map((task) => (
-            <ActiveTaskRow key={task.id} task={task} issueId={issueId} />
+            <ActiveTaskRow key={task.id} task={task} issueId={issueId} showSteering={showSteering} />
           ))}
 
           {pastTasks.length > 0 && (

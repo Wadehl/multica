@@ -1151,7 +1151,7 @@ export function IssueDetailSkeleton({ leading }: { leading?: ReactNode } = {}) {
 // IssueDetail
 // ---------------------------------------------------------------------------
 
-export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = true, layoutId = "multica_issue_detail_layout", highlightCommentId, highlightRequestToken, leadingAction }: IssueDetailProps) {
+export function IssueDetail({ issueId, onDelete, onDone, enableSteering = false, defaultSidebarOpen = true, layoutId = "multica_issue_detail_layout", highlightCommentId, highlightRequestToken, leadingAction }: IssueDetailProps) {
   const { t } = useT("issues");
   const locale = useLocale();
   const timeAgo = useTimeAgo();
@@ -2576,7 +2576,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
           own token spend, with the issue total on the section header.
           Self-contained; owns its own collapse state and WS subscriptions.
           Hides itself when there are no runs to show. */}
-      <ExecutionLogSection issueId={id} identifier={issue.identifier} />
+      <ExecutionLogSection issueId={id} identifier={issue.identifier} showSteering={enableSteering} />
 
       {/* Details — creator and timestamps. Sits below the execution log
           because it is the least-read block in the sidebar: the values
