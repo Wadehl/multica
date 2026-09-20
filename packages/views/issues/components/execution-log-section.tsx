@@ -62,6 +62,8 @@ interface ExecutionLogSectionProps {
   issueId: string;
   /** Shown in the usage dialog's subtitle so the panel names what it totals. */
   identifier?: string;
+  /** Enables the active-turn steering affordance. */
+  showSteering?: boolean;
 }
 
 // Past-runs sort priority: newest first by timestamp. When two runs
