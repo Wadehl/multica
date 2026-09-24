@@ -92,7 +92,9 @@ while IFS= read -r line; do
     *'"method":"session/prompt"'*)
       if [ -n "$GROK_WAIT_FOR_INTERJECT" ]; then
         prompt_id=$id
-        printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"ses_new","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"working"}}}}\n'
+        if [ -z "$GROK_NO_OUTPUT_BEFORE_INTERJECT" ]; then
+          printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"ses_new","update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"working"}}}}\n'
+        fi
         while IFS= read -r followup; do
           if [ -n "$GROK_REQUESTS_FILE" ]; then
             printf '%s\n' "$followup" >> "$GROK_REQUESTS_FILE"
@@ -106,6 +108,9 @@ while IFS= read -r line; do
                 printf '{"jsonrpc":"2.0","id":%s,"result":{"result":null,"error":"delivery failed"}}\n' "$followup_id"
               else
                 printf '{"jsonrpc":"2.0","id":%s,"result":{"result":{"status":"%s"}}}\n' "$followup_id" "${GROK_INTERJECT_NESTED_STATUS:-queued}"
+              fi
+              if [ -n "$GROK_NO_OUTPUT_BEFORE_INTERJECT" ]; then
+                printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"ses_new","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"111"}}}}\n'
               fi
               printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt_id"
               break
@@ -147,8 +152,9 @@ func TestGrokSupplementTargetsActivePrompt(t *testing.T) {
 	backend, err := New("grok", Config{
 		ExecutablePath: fakePath,
 		Env: map[string]string{
-			"GROK_WAIT_FOR_INTERJECT": "1",
-			"GROK_REQUESTS_FILE":      requestsPath,
+			"GROK_WAIT_FOR_INTERJECT":         "1",
+			"GROK_NO_OUTPUT_BEFORE_INTERJECT": "1",
+			"GROK_REQUESTS_FILE":              requestsPath,
 		},
 	})
 	if err != nil {
@@ -166,12 +172,6 @@ func TestGrokSupplementTargetsActivePrompt(t *testing.T) {
 	if session.SupplementReady() {
 		t.Fatal("supplement became ready before session/prompt started")
 	}
-	drained := make(chan struct{})
-	go func() {
-		defer close(drained)
-		for range session.Messages {
-		}
-	}()
 	deadline := time.Now().Add(3 * time.Second)
 	for !session.SupplementReady() && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
@@ -179,13 +179,33 @@ func TestGrokSupplementTargetsActivePrompt(t *testing.T) {
 	if !session.SupplementReady() {
 		t.Fatal("supplement never became ready during active prompt")
 	}
-	if err := session.Supplement(ctx, "Please verify the new edge case."); err != nil {
+	for len(session.Messages) > 0 {
+		msg := <-session.Messages
+		if msg.Type != MessageStatus {
+			t.Fatalf("agent emitted output before interjection: %+v", msg)
+		}
+	}
+	var messages []Message
+	drained := make(chan struct{})
+	go func() {
+		defer close(drained)
+		for msg := range session.Messages {
+			messages = append(messages, msg)
+		}
+	}()
+	if err := session.Supplement(ctx, "Reply with 111 instead of continuing the task."); err != nil {
 		t.Fatalf("send interjection: %v", err)
 	}
 	result := <-session.Result
 	<-drained
 	if result.Status != "completed" {
 		t.Fatalf("turn status=%q error=%q", result.Status, result.Error)
+	}
+	if result.Output != "111" {
+		t.Fatalf("turn output=%q, want steering response 111", result.Output)
+	}
+	if len(messages) != 1 || messages[0].Type != MessageText || messages[0].Content != "111" {
+		t.Fatalf("agent messages=%+v, want only steering response 111", messages)
 	}
 	if session.SupplementReady() {
 		t.Fatal("supplement remained ready after session/prompt completed")
@@ -194,7 +214,7 @@ func TestGrokSupplementTargetsActivePrompt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"method":"_x.ai/interject"`, `"sessionId":"ses_new"`, `"text":"Please verify the new edge case."`} {
+	for _, want := range []string{`"method":"_x.ai/interject"`, `"sessionId":"ses_new"`, `"text":"Reply with 111 instead of continuing the task."`} {
 		if !strings.Contains(string(requests), want) {
 			t.Errorf("ACP requests missing %s:\n%s", want, requests)
 		}
