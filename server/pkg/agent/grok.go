@@ -96,6 +96,9 @@ type grokSupplementSession struct {
 	active    atomic.Bool
 }
 
+// grokSupplementTimeout bounds the wait for an ACP interjection acknowledgement.
+var grokSupplementTimeout = 8 * time.Second
+
 func (s *grokSupplementSession) stop() {
 	s.active.Store(false)
 }
@@ -121,7 +124,9 @@ func (s *grokSupplementSession) send(ctx context.Context, text string) error {
 	}
 	// ACP custom method names are underscore-prefixed on the JSON-RPC wire;
 	// Grok's ACP server strips that marker before routing to x.ai/interject.
-	response, err := s.client.request(ctx, "_x.ai/interject", map[string]any{
+	rpcCtx, cancel := context.WithTimeout(ctx, grokSupplementTimeout)
+	defer cancel()
+	response, err := s.client.request(rpcCtx, "_x.ai/interject", map[string]any{
 		"sessionId": sessionID,
 		"text":      text,
 	})

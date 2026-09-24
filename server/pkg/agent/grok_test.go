@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -102,6 +103,10 @@ while IFS= read -r line; do
           followup_id=$(printf '%s' "$followup" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
           case "$followup" in
             *'"method":"_x.ai/interject"'*)
+              if [ -n "$GROK_INTERJECT_NO_FIRST_RESPONSE" ] && [ -z "$ignored_first_interject" ]; then
+                ignored_first_interject=1
+                continue
+              fi
               if [ -n "$GROK_INTERJECT_UNSUPPORTED" ]; then
                 printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32601,"message":"method not found"}}\n' "$followup_id"
               elif [ -n "$GROK_INTERJECT_EXTENSION_ERROR" ]; then
@@ -218,6 +223,83 @@ func TestGrokSupplementTargetsActivePrompt(t *testing.T) {
 		if !strings.Contains(string(requests), want) {
 			t.Errorf("ACP requests missing %s:\n%s", want, requests)
 		}
+	}
+}
+
+func TestGrokSupplementTimesOutIndependentlyAndAllowsNextMessage(t *testing.T) {
+	fakePath := filepath.Join(t.TempDir(), "grok")
+	writeTestExecutable(t, fakePath, []byte(fakeGrokACPScript()))
+	backend, err := New("grok", Config{
+		ExecutablePath: fakePath,
+		Env: map[string]string{
+			"GROK_WAIT_FOR_INTERJECT":          "1",
+			"GROK_INTERJECT_NO_FIRST_RESPONSE": "1",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	previousTimeout := grokSupplementTimeout
+	grokSupplementTimeout = 50 * time.Millisecond
+	defer func() { grokSupplementTimeout = previousTimeout }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	session, err := backend.Execute(ctx, "continue working", ExecOptions{Timeout: time.Minute, EnableTaskSupplement: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for !session.SupplementReady() && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !session.SupplementReady() {
+		cancel()
+		t.Fatal("supplement never became ready during active prompt")
+	}
+
+	started := time.Now()
+	firstSupplement := make(chan error, 1)
+	go func() {
+		firstSupplement <- session.Supplement(ctx, "The first interjection will not be acknowledged.")
+	}()
+	select {
+	case err = <-firstSupplement:
+	case <-time.After(time.Second):
+		cancel()
+		select {
+		case <-session.Result:
+		case <-time.After(3 * time.Second):
+			t.Fatal("Grok run did not stop after its parent context was canceled")
+		}
+		t.Fatal("supplement did not return within its independent timeout")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		cancel()
+		t.Fatalf("first supplement error=%v, want context deadline exceeded", err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		cancel()
+		t.Fatalf("first supplement took %s to time out, want under 1s", elapsed)
+	}
+	if !session.SupplementReady() {
+		cancel()
+		t.Fatal("an interject timeout ended the active Grok prompt")
+	}
+
+	if err := session.Supplement(ctx, "The next interjection should still be delivered."); err != nil {
+		cancel()
+		t.Fatalf("second supplement after timeout: %v", err)
+	}
+	select {
+	case result := <-session.Result:
+		if result.Status != "completed" {
+			t.Fatalf("turn status=%q error=%q", result.Status, result.Error)
+		}
+	case <-time.After(3 * time.Second):
+		cancel()
+		t.Fatal("Grok prompt did not complete after the second interjection")
 	}
 }
 
